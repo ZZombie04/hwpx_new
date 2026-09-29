@@ -155,7 +155,12 @@ def analyze(path: str) -> Blueprint:
         else:
             t = b.text.strip()
             para = head.para.get(b.info['para_pr'], {})
-            if not t:
+            OBJ = ('pic', 'rect', 'line', 'ellipse', 'arc', 'polygon', 'curve', 'container', 'ole', 'equation',
+                   'textart', 'video', 'chart', 'connectLine')
+            has_obj = any(ch.tag.split('}')[1] in OBJ for run in p.findall(HP + 'run') for ch in run)
+            if not t and has_obj:
+                b.role = 'image'
+            elif not t:
                 b.role = 'blank'
             elif is_bullet_start(b.text):
                 b.role = 'bullet'
@@ -205,7 +210,7 @@ def analyze(path: str) -> Blueprint:
 ROLE_KO = {
     'title': '표지/제목', 'subtitle': '부제(작성 부서 등)', 'heading': '소제목(표형)', 'heading_text': '소제목(글)',
     'table': '표', 'box': '강조 박스', 'bullet': '글머리 문단', 'numbered': '번호 문단',
-    'paragraph': '본문', 'blank': '빈 줄',
+    'paragraph': '본문', 'blank': '빈 줄', 'image': '그림/도형 문단',
 }
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 
+IMG_RE = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
 NUM_RE = re.compile(r'^(\d{1,2}\s*[\.\)]|[가-힣]\s*[\.\)]|\(\d{1,2}\)|[①-⑳])\s*\S')
 
 
@@ -63,6 +64,34 @@ def parse_markdown(text: str):
             if title is None and body:
                 title, body = body[0], body[1:]
             emit({'type': 'box', 'title': title, 'lines': body})
+            continue
+        if s.startswith(':::photos'):
+            opts = dict(re.findall(r'(\w+)=("[^"]*"|\S+)', s[len(':::photos'):]))
+            opts = {k: v.strip('"') for k, v in opts.items()}
+            imgs = []
+            while i < len(lines) and lines[i].strip() != ':::':
+                for cap, path in IMG_RE.findall(lines[i]):
+                    imgs.append({'path': path.strip(), 'caption': cap.strip()})
+                i += 1
+            i += 1
+            g = {'type': 'gallery', 'images': imgs}
+            if 'columns' in opts:
+                g['columns'] = int(opts['columns'])
+            if 'title' in opts:
+                g['title'] = opts['title']
+            if 'width_mm' in opts:
+                g['width_mm'] = float(opts['width_mm'])
+            if 'max_height_mm' in opts:
+                g['max_height_mm'] = float(opts['max_height_mm'])
+            emit(g)
+            continue
+        found = IMG_RE.findall(s)
+        if found and IMG_RE.sub('', s).strip() == '':
+            if len(found) == 1:
+                emit({'type': 'image', 'path': found[0][1].strip(), 'caption': found[0][0].strip()})
+            else:
+                emit({'type': 'gallery', 'columns': min(len(found), 4),
+                      'images': [{'path': pth.strip(), 'caption': cap.strip()} for cap, pth in found]})
             continue
         if s.startswith('|'):
             tbl = [s]

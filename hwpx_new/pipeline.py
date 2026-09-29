@@ -20,8 +20,8 @@ def safe_name(s):
     return s[:80] or '결과물'
 
 
-def build_once(template, specs, breaks, compact, out_hwpx, title):
-    b = Builder(template)
+def build_once(template, specs, breaks, compact, out_hwpx, title, base_dir=None):
+    b = Builder(template, base_dir=base_dir)
     specs2 = []
     for i, s in enumerate(specs):
         s = dict(s)
@@ -80,9 +80,11 @@ def lint_content(specs):
 
 
 def make_report(template, content, out_dir, name=None, engine=None, autofix=True, max_rounds=6,
-                previews=True, dpi=70):
+                previews=True, dpi=70, base_dir=None):
     """content: 파일 경로 | JSON 문자열 | Markdown 문자열.  반환: dict(결과 요약)."""
     specs, meta = load_content(content)
+    if base_dir is None:
+        base_dir = os.path.dirname(os.path.abspath(content)) if len(content) < 500 and os.path.exists(content) else os.getcwd()
     if not specs:
         raise ValueError('내용(블록)이 비어 있습니다.')
     title = next((s.get('text') for s in specs if s.get('type') == 'title'), None)
@@ -106,7 +108,7 @@ def make_report(template, content, out_dir, name=None, engine=None, autofix=True
             seen.add(state)
             tmp_h = os.path.join(work, f'r{rounds}.hwpx')
             tmp_p = os.path.join(work, f'r{rounds}.pdf')
-            builder, probes = build_once(template, specs, set(breaks), compact, tmp_h, title or name)
+            builder, probes = build_once(template, specs, set(breaks), compact, tmp_h, title or name, base_dir)
             eng, elog = pdfmod.convert(tmp_h, tmp_p, prefer=engine)
             if eng is None:
                 log += elog

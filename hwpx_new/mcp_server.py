@@ -23,6 +23,7 @@ def hwpx_start_here() -> str:
         '2. 사용자의 요청(예: 계획서 → 결과보고서)에 맞게 서식의 뼈대를 따라 내용을 새로 쓴다. hwpx_format_guide 로 문법 확인.\n'
         '   - 사용자가 주지 않은 사실을 지어 넣었다면 최종 답변에서 반드시 밝힌다.\n'
         '3. hwpx_build(template_path, content, output_dir): HWPX + PDF 를 한 번에 만든다. 조판 점검과 자동 보정이 포함되어 있다.\n'
+        '   - 사용자가 사진을 줬다면: hwpx_photos(폴더) → hwpx_photo_sheet(폴더)로 사진을 보고, 내용에 `![캡션](경로)` / `:::photos` 로 넣는다.\n'
         '4. hwpx_preview(pdf_path, page): 결과 PDF 를 눈으로 확인한다. 어색하면 내용을 고쳐 3번을 다시 호출한다.\n'
         '5. 사용자에게 HWPX·PDF 경로와 지어 넣은 내용(있다면)을 알린다.\n'
         '※ .hwp(옛 형식)는 한글에서 HWPX 로 다시 저장해야 한다.')
@@ -79,6 +80,24 @@ def hwpx_convert_hwp(hwp_path: str) -> str:
     out = os.path.splitext(hwp_path)[0] + '.hwpx'
     ok, msg = hwp_to_hwpx(hwp_path, out)
     return msg if ok else '변환 실패: ' + msg
+
+
+@mcp.tool()
+def hwpx_photos(folder: str) -> str:
+    """사진 폴더(또는 사진 파일)를 살펴본다: 촬영 시각 순 목록과 번호가 붙은 한눈에 보기 이미지 경로를 돌려준다.
+    이어서 hwpx_photo_sheet 로 그 이미지를 보고 각 사진이 무엇인지 파악한 뒤 보고서의 알맞은 위치에 넣는다."""
+    from .photos import describe_folder
+    text, _sheet = describe_folder(folder)
+    return text
+
+
+@mcp.tool()
+def hwpx_photo_sheet(folder: str) -> Image:
+    """hwpx_photos 가 만든 '번호 붙은 사진 한눈에 보기' 이미지를 돌려준다(사진 내용을 파악할 때 사용)."""
+    from .photos import describe_folder
+    _text, sheet = describe_folder(folder)
+    with open(sheet, 'rb') as f:
+        return Image(data=f.read(), format='png')
 
 
 @mcp.tool()

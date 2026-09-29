@@ -58,3 +58,7 @@ MCP 를 지원하지 않는 AI 도 셸 명령을 실행할 수 있으면 저장�
 ## Claude 스킬
 
 `skill/hwpx-new/` 폴더를 통째로 `~/.claude/skills/hwpx-new/` 로 복사합니다.
+
+---
+
+<p align="center"><b>리치쌤</b> · <a href="https://joo.is/AI%EB%A6%AC%EC%B9%98%EC%8C%A4">https://joo.is/AI리치쌤</a></p>

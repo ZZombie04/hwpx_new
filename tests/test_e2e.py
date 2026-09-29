@@ -83,6 +83,33 @@ def test_fallback_when_no_box_or_table():
     assert len(els) >= 3 and b.warnings
 
 
+def test_photos_embedded():
+    from hwpx_new.images import prepare_image
+    from hwpx_new.validate import validate
+    data, ext, w, h = prepare_image(os.path.join(ROOT, 'examples', 'photos', '06_세로회전.jpg'))
+    assert (w, h) == (1200, 1600)          # EXIF 회전 보정
+    out = tempfile.mkdtemp()
+    md = os.path.join(ROOT, 'examples', 'sample_content_photos.md')
+    res = make_report(TPL, md, out, name='photo', engine='html')
+    assert not validate(res['hwpx']), validate(res['hwpx'])
+    with zipfile.ZipFile(res['hwpx']) as z:
+        bins = [n for n in z.namelist() if n.startswith('BinData/')]
+        sec = z.read('Contents/section0.xml').decode('utf-8')
+        hpf = z.read('Contents/content.hpf').decode('utf-8')
+    assert len(bins) == 5 and sec.count('<hp:pic ') == 5
+    assert all(f'id="image{i}"' in hpf for i in range(1, 6))
+
+
+def test_missing_photo_is_clear_error():
+    out = tempfile.mkdtemp()
+    try:
+        make_report(TPL, '# t' + chr(10) + '![x](없는사진.jpg)', out, name='x', engine='html')
+    except Exception as e:  # noqa
+        assert '찾을 수 없' in str(e)
+    else:
+        raise AssertionError('missing photo should raise')
+
+
 if __name__ == '__main__':
     for name, fn in list(globals().items()):
         if name.startswith('test_'):

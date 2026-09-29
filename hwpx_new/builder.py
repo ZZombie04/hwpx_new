@@ -12,6 +12,7 @@ from lxml import etree
 
 from .analyze import (Block, Blueprint, analyze, bullet_marker, cell_paragraphs, is_bullet_start, ptext,
                       table_of)
+from .images import (ImageError, MM, fit_size, next_image_index, pic_run, prepare_image, register_images)
 from .package import HH, HP, NS
 
 HEADING_SPLIT = re.compile(r'^(\S{1,6}\s*[\.\)]\s*)(.*)$', re.S)
@@ -277,7 +278,7 @@ class Kit:
 
 # ---------------------------------------------------------------- 빌더
 class Builder:
-    def __init__(self, template: str):
+    def __init__(self, template: str, base_dir: str = None):
         self.bp = analyze(template)
         self.kit = Kit(self.bp)
         self.pkg = self.bp.pkg
@@ -285,6 +286,11 @@ class Builder:
         self._para_cache = {}
         self._tbl_id = 1000000000
         self.warnings = []
+        self.base_dir = base_dir
+        self._imgs = {}
+        self._img_new = []
+        self._img_idx = next_image_index(self.pkg)
+        self._uid = 0
 
     # ---- 문단 정렬 변형 생성(header.xml 에 paraPr 추가)
     def ensure_para(self, pid, align):
@@ -444,16 +450,106 @@ class Builder:
         return el
 
     # ---- 표 ---------------------------------------------------------------
-    @staticmethod
-    def _norm_cell(c):
+    IMG_MD = re.compile(r'^!\[(.*?)\]\((.+?)\)$')
+
+    @classmethod
+    def _norm_cell(cls, c):
         if isinstance(c, dict):
             text = c.get('text', '')
-            lines = text if isinstance(text, list) else str(text).split('\n')
+            lines = text if isinstance(text, list) else str(text).split(chr(10))
             return {'lines': lines or [''], 'cs': int(c.get('colspan', 1)), 'rs': int(c.get('rowspan', 1)),
-                    'align': c.get('align')}
+                    'align': c.get('align'), 'image': c.get('image'), 'width_mm': c.get('width_mm'),
+                    'max_h_mm': c.get('max_h_mm', 70)}
         if isinstance(c, list):
             return {'lines': [str(x) for x in c], 'cs': 1, 'rs': 1, 'align': None}
-        return {'lines': str(c).split('\n') if c is not None else [''], 'cs': 1, 'rs': 1, 'align': None}
+        s = str(c) if c is not None else ''
+        m = cls.IMG_MD.match(s.strip())
+        if m:
+            return {'lines': [m.group(1)] if m.group(1) else [''], 'cs': 1, 'rs': 1, 'align': 'c',
+                    'image': m.group(2), 'width_mm': None, 'max_h_mm': 70}
+        return {'lines': s.split(chr(10)), 'cs': 1, 'rs': 1, 'align': None}
+
+    # ---- 사진 --------------------------------------------------------------
+    def resolve_path(self, p):
+        if os.path.isabs(p) and os.path.exists(p):
+            return p
+        tried = []
+        for base in (self.base_dir, os.getcwd()):
+            if base:
+                q = os.path.join(base, p)
+                tried.append(q)
+                if os.path.exists(q):
+                    return q
+        raise ImageError('사진 파일을 찾을 수 없습니다: ' + p + ' (찾아본 곳: ' + ', '.join(tried) + ')')
+
+    def add_image(self, path, max_w, max_h, want_w=None):
+        full = os.path.abspath(self.resolve_path(path))
+        if full not in self._imgs:
+            data, ext, wpx, hpx = prepare_image(full)
+            bin_id = f'image{self._img_idx}'
+            self._img_idx += 1
+            self._imgs[full] = (bin_id, ext, data, wpx, hpx)
+            self._img_new.append((bin_id, ext, data))
+        bin_id, ext, data, wpx, hpx = self._imgs[full]
+        w, h = fit_size(wpx, hpx, max_w, max_h, want_w)
+        self._uid += 1
+        return {'bin_id': bin_id, 'w': w, 'h': h, 'wpx': wpx, 'hpx': hpx, 'uid': self._uid,
+                'name': os.path.basename(full)}
+
+    def _pic_run(self, char_id, info, inline=True):
+        return pic_run(char_id, info['bin_id'], info['w'], info['h'], info['wpx'], info['hpx'], inline=inline,
+                       uid=info['uid'], name=info['name'])
+
+    def center_pair(self):
+        kit = self.kit
+        if 'c' in kit.body:
+            return kit.body['c']
+        if 'l' in kit.body:
+            pp, ch, st = kit.body['l']
+            return (self.ensure_para(pp, 'CENTER'), ch, st)
+        for pid, inf in self.head.para.items():
+            if inf.get('align') == 'CENTER':
+                return (pid, '0', '0')
+        return ('0', '0', '0')
+
+    def make_image_block(self, spec):
+        """단독 사진(+캡션). 반환: 문단 목록"""
+        path = spec.get('path') or spec.get('image')
+        if not path:
+            raise BuildError('image 블록에 path 가 없습니다.')
+        want = float(spec['width_mm']) * MM if spec.get('width_mm') else None
+        info = self.add_image(path, self.kit.text_width - 200, int(float(spec.get('max_height_mm', 100)) * MM), want)
+        pp, ch, st = self.center_pair()
+        dummy = etree.Element(HP + 'p')
+        p = new_p(dummy, '', para_pr=pp, char=ch, style=st)
+        p.replace(p.find(HP + 'run'), self._pic_run(ch or '0', info))
+        out = [p]
+        if spec.get('caption'):
+            out.append(new_p(dummy, spec['caption'], para_pr=pp, char=ch, style=st))
+        return out
+
+    def make_gallery(self, spec):
+        """사진 대지: 표 안에 사진 격자(+캡션 줄)."""
+        raw = spec.get('images') or []
+        imgs = []
+        for x in raw:
+            if isinstance(x, str):
+                imgs.append({'path': x, 'caption': ''})
+            else:
+                imgs.append({'path': x.get('path') or x.get('image'), 'caption': x.get('caption', '')})
+        if not imgs:
+            return None
+        cols = int(spec.get('columns') or (3 if len(imgs) >= 3 else len(imgs)))
+        rows = []
+        for i in range(0, len(imgs), cols):
+            chunk = imgs[i:i + cols]
+            pad = [''] * (cols - len(chunk))
+            rows.append([{'text': '', 'image': im['path'], 'width_mm': spec.get('width_mm'),
+                          'max_h_mm': spec.get('max_height_mm', 60)} for im in chunk] + pad)
+            if any(im['caption'] for im in chunk):
+                rows.append([im['caption'] for im in chunk] + pad)
+        header = [{'text': spec['title'], 'colspan': cols}] if spec.get('title') else []
+        return self.make_table({'header': header, 'rows': rows, 'widths': [1] * cols, 'align': ['c'] * cols})
 
     def make_table(self, spec):
         kit = self.kit
@@ -556,7 +652,18 @@ class Builder:
             ref_p = protos[0]
             for q in protos:
                 sub.remove(q)
-            for line in cell['lines']:
+            img_h = 0
+            if cell.get('image'):
+                mar0 = tc.find(HP + 'cellMargin')
+                max_w = w - int(mar0.get('left', '141')) - int(mar0.get('right', '141')) - 300
+                want = int(float(cell['width_mm']) * MM) if cell.get('width_mm') else None
+                info = self.add_image(cell['image'], max_w, int(float(cell.get('max_h_mm', 70)) * MM), want)
+                ip = new_p(ref_p, '', para_pr=self.ensure_para(pp, 'CENTER'), char=ch, style=st)
+                ip.replace(ip.find(HP + 'run'), self._pic_run(ch or '0', info))
+                sub.append(ip)
+                img_h = info['h']
+            text_lines = [l for l in cell['lines'] if l != ''] if cell.get('image') else cell['lines']
+            for line in text_lines:
                 sub.append(new_p(ref_p, line, para_pr=pp, char=ch, style=st))
             tc.find(HP + 'cellAddr').set('colAddr', str(c))
             tc.find(HP + 'cellAddr').set('rowAddr', str(r))
@@ -566,15 +673,18 @@ class Builder:
             mar = tc.find(HP + 'cellMargin')
             inner = w - (int(mar.get('left', '141')) + int(mar.get('right', '141'))) - 200
             cpl = max(2, inner / (size * 0.94))
-            nlines = sum(max(1, math.ceil(dwidth(l) / cpl)) for l in cell['lines'])
+            nlines = sum(max(1, math.ceil(dwidth(l) / cpl)) for l in text_lines)
             base = kit.head_h if is_head else kit.body_h
             if min_row and not is_head:
                 base = min_row
             if compact >= 2 and not is_head:
                 base = int(base * 0.8)
-            h = int(base + (nlines - 1) * size * 1.15) if nlines > 1 else base
-            if nlines > 1 and not is_head:
-                h = max(h, int(nlines * size * 1.2 + 700))
+            if img_h:
+                h = int(img_h + 500 + nlines * size * 1.2 + (250 if nlines else 0))
+            else:
+                h = int(base + (nlines - 1) * size * 1.15) if nlines > 1 else base
+                if nlines > 1 and not is_head:
+                    h = max(h, int(nlines * size * 1.2 + 700))
             tc.find(HP + 'cellSz').set('width', str(w))
             cs_h = h // cell['rs']
             row_h[r] = max(row_h[r], cs_h)
@@ -663,6 +773,7 @@ class Builder:
         prev_role = None
         n = len(specs)
         for si, s in enumerate(specs):
+            extra_els = []
             typ = s.get('type', 'paragraph')
             nxt = specs[si + 1].get('type') if si + 1 < n else None
             role = typ
@@ -727,6 +838,15 @@ class Builder:
                         e2 = self._first(('bullet', line), ('paragraph', line))
                         out.append((e2, False))
                     continue
+            elif typ == 'image':
+                els = self.make_image_block(s)
+                el, extra_els = els[0], els[1:]
+                role = 'paragraph'
+            elif typ == 'gallery':
+                el = self.make_gallery(s)
+                role = 'table'
+                if el is None:
+                    continue
             elif typ == 'blank':
                 out.append((kit.blank_el(), False))
                 continue
@@ -757,11 +877,15 @@ class Builder:
                     out.pop()
                 el.set('pageBreak', '1')
             out.append((el, False))
+            for x in extra_els:
+                out.append((x, False))
             probes.append(self._probe(si, typ, s))
             # 자동 간격
             group_end = not (typ in ('bullet', 'numbered', 'paragraph') and nxt == typ)
             if group_end and nxt is not None:
                 blanks = kit.after.get(role if role != 'clone' else 'paragraph', [])
+                if not blanks and typ == 'image':
+                    blanks = kit.after.get('table') or kit.after.get('bullet') or []
                 if typ in ('bullet', 'numbered', 'paragraph') and compact >= 1 and nxt != 'heading':
                     blanks = blanks[:0]
                 if compact >= 1:
@@ -790,6 +914,11 @@ class Builder:
         if typ in ('heading', 'title', 'subtitle', 'paragraph', 'bullet', 'numbered', 'end'):
             t = re.sub(r'\s+', ' ', s.get('text', ''))
             pr['texts'] = [t[:12]]
+        elif typ == 'image':
+            pr['texts'] = [str(s.get('caption', ''))[:12]]
+        elif typ == 'gallery':
+            caps = [x.get('caption', '') for x in s.get('images', []) if isinstance(x, dict)]
+            pr['texts'] = [caps[0][:12]] if caps else []
         elif typ == 'box':
             lines = s.get('lines') or []
             pr['texts'] = [first(s.get('title') or (lines[0] if lines else ''))[:12]]
@@ -813,6 +942,7 @@ class Builder:
         for e in elements:
             root.append(e)
         pkg.set_xml(pkg.section_names()[0], root)
+        register_images(pkg, self._img_new)
         pkg.set_xml('Contents/header.xml', self.head.root)
         # 첫 구역 외 구역 제거
         extra = pkg.section_names()[1:]

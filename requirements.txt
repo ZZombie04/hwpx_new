@@ -1,3 +1,4 @@
 lxml>=4.9
 pymupdf>=1.23
 mcp>=1.2
+pillow>=9.0

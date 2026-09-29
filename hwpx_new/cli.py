@@ -79,6 +79,10 @@ def main(argv=None):
 
     sub.add_parser('mcp-config', help='MCP 설정(JSON)을 각 AI 프로그램별로 출력')
 
+    p = sub.add_parser('photos', help='사진 폴더 살펴보기: 목록(촬영일시·크기) + 번호 붙은 한눈에 보기 이미지')
+    p.add_argument('folder')
+    p.add_argument('-o', '--out', help='한눈에 보기 이미지 저장 경로(기본: 폴더/_photo_sheet.png)')
+
     p = sub.add_parser('preview', help='PDF 한 쪽을 PNG 로 저장')
     p.add_argument('pdf')
     p.add_argument('--page', type=int, default=1)
@@ -86,6 +90,14 @@ def main(argv=None):
     p.add_argument('-o', '--out')
 
     a = ap.parse_args(argv)
+    try:
+        return _run(a, ap)
+    except Exception as e:  # noqa
+        print('오류: ' + str(e))
+        return 1
+
+
+def _run(a, ap):
     if a.cmd == 'doctor':
         from .pdf import available_engines
         e = available_engines()
@@ -156,6 +168,11 @@ def main(argv=None):
         print('args = ["-m", "hwpx_new.mcp_server"]')
         print()
         print('# Gemini CLI (~/.gemini/settings.json 의 mcpServers 에 위 공통 JSON 추가)')
+        return 0
+    if a.cmd == 'photos':
+        from .photos import describe_folder
+        text, sheet = describe_folder(a.folder, a.out)
+        print(text)
         return 0
     if a.cmd == 'preview':
         import pymupdf

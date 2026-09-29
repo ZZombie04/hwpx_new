@@ -2,8 +2,10 @@
 """내장 미리보기 렌더러: HWPX → HTML → PDF (한글/LibreOffice 가 없는 환경의 대체 경로, '근사' 결과)."""
 from __future__ import annotations
 
+import base64
 import html
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -73,6 +75,12 @@ class Renderer:
         self.head = pkg.header()
         self.root = pkg.section_root(0)
         self.page = page_info(self.root)
+        self.bin = {}
+        hpf = pkg.files.get('Contents/content.hpf', b'').decode('utf-8', 'ignore')
+        for m in re.finditer(r'<opf:item ([^>]*)/>', hpf):
+            at = dict(re.findall(r'([\w:-]+)="([^"]*)"', m.group(1)))
+            if at.get('href', '').startswith('BinData/'):
+                self.bin[at['id']] = (at['href'], at.get('media-type', 'image/png'))
 
     def para_css(self, p):
         pp = self.head.para.get(p.get('paraPrIDRef'), {})
@@ -84,11 +92,26 @@ class Renderer:
             css += 'page-break-before:always;break-before:page;'
         return css
 
+    def pic_html(self, pic):
+        ref = pic.find('{http://www.hancom.co.kr/hwpml/2011/core}img')
+        cur = pic.find(HP + 'curSz')
+        if ref is None or cur is None or ref.get('binaryItemIDRef') not in self.bin:
+            return ''
+        href, mt = self.bin[ref.get('binaryItemIDRef')]
+        data = self.pkg.files.get(href)
+        if not data:
+            return ''
+        w, h = int(cur.get('width')) / 100, int(cur.get('height')) / 100
+        return f'<img src="data:{mt.replace("image/jpg", "image/jpeg")};base64,{base64.b64encode(data).decode()}" style="width:{w:.1f}pt;height:{h:.1f}pt;vertical-align:bottom">'
+
     def render_p(self, p, top=False, in_cell=False):
         out = []
         tables = [r.find(HP + 'tbl') for r in p.findall(HP + 'run') if r.find(HP + 'tbl') is not None]
         spans = []
         for run in p.findall(HP + 'run'):
+            pic = run.find(HP + 'pic')
+            if pic is not None:
+                spans.append(self.pic_html(pic))
             txt = ''.join(''.join(t.itertext()) for t in run.findall(HP + 't'))
             if not txt:
                 continue

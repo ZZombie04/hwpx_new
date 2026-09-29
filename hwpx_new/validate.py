@@ -35,6 +35,13 @@ def validate(path: str):
         b = el.get('borderFillIDRef')
         if b is not None and b not in bf_ids and b != '0':
             errs.append(f'없는 테두리/배경 참조: borderFillIDRef={b}')
+    hpf = pkg.files.get('Contents/content.hpf', b'').decode('utf-8', 'ignore')
+    for img in root.iter('{http://www.hancom.co.kr/hwpml/2011/core}img'):
+        ref = img.get('binaryItemIDRef')
+        if f'id="{ref}"' not in hpf:
+            errs.append(f'매니페스트에 없는 그림 참조: {ref}')
+        elif not any(n.startswith(f'BinData/{ref}.') for n in pkg.files):
+            errs.append(f'BinData 에 그림 파일이 없음: {ref}')
     seen = set()
     for tbl in root.iter(HP + 'tbl'):
         tid = tbl.get('id')
