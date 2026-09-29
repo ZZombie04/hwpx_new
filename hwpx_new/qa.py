@@ -1,0 +1,72 @@
+# -*- coding: utf-8 -*-
+"""PDF 조판 점검: 빈 쪽, 소제목만 쪽 끝에 남음, 표가 쪽 사이에서 잘림, 마지막 쪽 토막 등을 찾는다."""
+from __future__ import annotations
+
+import re
+
+
+def _norm(s):
+    return re.sub(r'\s+', '', s or '')
+
+
+def inspect(pdf, probes):
+    import pymupdf
+    doc = pymupdf.open(pdf)
+    pages = []
+    for pi, page in enumerate(doc):
+        blocks = page.get_text('blocks')
+        lines = [b for b in blocks if b[4].strip()]
+        body = [b for b in lines if not re.fullmatch(r'\s*[-–]?\s*\d+\s*[-–]?\s*', b[4])]
+        H = page.rect.height
+        pages.append({
+            'index': pi + 1,
+            'n_lines': sum(len([x for x in b[4].split('\n') if x.strip()]) for b in body),
+            'fill': max([b[3] for b in body], default=0) / H,
+            'text': page.get_text(),
+        })
+    # 프로브 위치(순서대로 앞으로만 검색)
+    found = {}
+    cur_page, cur_y = 0, -1
+    for pr in probes:
+        locs = []
+        for t in pr['texts']:
+            hit = None
+            for pi in range(cur_page, len(doc)):
+                rects = doc[pi].search_for(t[:14]) or doc[pi].search_for(t[:6])
+                rects = [r for r in rects if not (pi == cur_page and r.y0 < cur_y - 3)]
+                if rects:
+                    r = min(rects, key=lambda r: (r.y0, r.x0))
+                    hit = (pi, r.y0, r.y1)
+                    break
+            locs.append(hit)
+            if hit:
+                cur_page, cur_y = hit[0], hit[1]
+        found[pr['i']] = locs
+    issues = []
+    for p in pages:
+        if p['n_lines'] == 0:
+            issues.append({'kind': 'blank_page', 'page': p['index']})
+    for k, pr in enumerate(probes):
+        locs = [l for l in found.get(pr['i'], []) if l]
+        typ = pr['type']
+        if typ == 'table' and len(locs) == 2 and locs[0][0] != locs[1][0]:
+            issues.append({'kind': 'split_table', 'spec': pr['i'], 'page': locs[0][0] + 1})
+        if typ == 'heading' and locs and k + 1 < len(probes):
+            nxt = [l for l in found.get(probes[k + 1]['i'], []) if l]
+            if nxt and nxt[0][0] > locs[0][0]:
+                issues.append({'kind': 'orphan_heading', 'spec': pr['i'], 'page': locs[0][0] + 1})
+    if len(pages) > 1 and pages[-1]['n_lines'] <= 3 and pages[-1]['n_lines'] > 0:
+        issues.append({'kind': 'widow_last_page', 'page': len(pages), 'lines': pages[-1]['n_lines']})
+    return {'n_pages': len(pages), 'pages': pages, 'issues': issues, 'probe_pages': {
+        i: [(l[0] + 1) if l else None for l in v] for i, v in found.items()}}
+
+
+ISSUE_KO = {
+    'blank_page': '빈 쪽이 있음', 'orphan_heading': '소제목이 쪽 끝에 홀로 남음',
+    'split_table': '표가 쪽 사이에서 잘림', 'widow_last_page': '마지막 쪽에 내용이 몇 줄만 남음',
+}
+
+
+def describe(issue):
+    s = ISSUE_KO.get(issue['kind'], issue['kind'])
+    return f'{issue["page"]}쪽: {s}'

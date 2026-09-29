@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+_out/
+_build/
+_dbg.py
+_sweep.py
+/output/
+.venv/
