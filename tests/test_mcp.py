@@ -70,8 +70,7 @@ def test_progress_notifications_during_build():
             'name': 'hwpx_build', '_meta': {'progressToken': 'p1'},
             'arguments': {'template_path': TPL, 'content': os.path.join(ROOT, 'examples', 'sample_content.md'),
                           'output_dir': out, 'engine': 'html'}}}
-        c.p.stdin.write((json.dumps(msg, ensure_ascii=False) + '
-').encode('utf-8'))
+        c.p.stdin.write((json.dumps(msg, ensure_ascii=False) + chr(10)).encode('utf-8'))
         c.p.stdin.flush()
         notes = 0
         while True:
