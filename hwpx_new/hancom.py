@@ -136,7 +136,7 @@ while (-not (Test-Path -LiteralPath $stop) -and ((Get-Date) - $t0).TotalSeconds 
       if ($first) { Log ("DIALOG title=[{0}] msg=[{1}] buttons=[{2}]" -f $parts[3], $short, ($names -join ' | ')) }
       $isAccess = ($msg -match '접근')
       $ours = $false
-      if ($workdir) { $ours = ($msg.ToLower().Contains($workdir.ToLower())) }
+      if ($workdir) { $ours = ($msg.ToLower().Contains($workdir.ToLower())) -or ($msg -match 'convert_[0-9a-f]{8}\.') }
       $pick = $null
       if ($isAccess -and $ours) {
         # 이 도구의 작업 폴더 안 파일에 대한 요청만 [접근 허용](이번 한 번)을 누른다. [모두 허용]·[허용 안 함]·[모두 안 함] 은 누르지 않는다.
