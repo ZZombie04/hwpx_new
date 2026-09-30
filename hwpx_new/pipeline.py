@@ -126,7 +126,7 @@ def lint_leftovers(template, out_hwpx, specs):
 
 
 def make_report(template, content, out_dir, name=None, engine=None, autofix=True, max_rounds=6,
-                previews=True, dpi=70, base_dir=None):
+                previews=True, dpi=70, base_dir=None, progress=None):
     """content: 파일 경로 | JSON 문자열 | Markdown 문자열.  반환: dict(결과 요약)."""
     pdfmod._FAILED.clear()         # 오래 켜 둔 MCP 서버에서도 이전 빌드의 일시적 실패가 한글 엔진을 영구히 막지 않도록
     specs, meta = load_content(content)
@@ -151,6 +151,8 @@ def make_report(template, content, out_dir, name=None, engine=None, autofix=True
         rounds = 0
         while True:
             rounds += 1
+            if progress:
+                progress(rounds, max_rounds, f'{rounds}차 조립·PDF 변환·조판 점검')
             breaks, compact = state
             seen.add(state)
             tmp_h = os.path.join(work, f'r{rounds}.hwpx')

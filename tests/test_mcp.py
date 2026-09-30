@@ -60,6 +60,33 @@ def test_protocol_roundtrip():
         c.close()
 
 
+def test_progress_notifications_during_build():
+    c = Client()
+    try:
+        c.call('initialize', {'protocolVersion': '2025-03-26', 'capabilities': {}})
+        out = tempfile.mkdtemp()
+        c.n += 1
+        msg = {'jsonrpc': '2.0', 'id': c.n, 'method': 'tools/call', 'params': {
+            'name': 'hwpx_build', '_meta': {'progressToken': 'p1'},
+            'arguments': {'template_path': TPL, 'content': os.path.join(ROOT, 'examples', 'sample_content.md'),
+                          'output_dir': out, 'engine': 'html'}}}
+        c.p.stdin.write((json.dumps(msg, ensure_ascii=False) + '
+').encode('utf-8'))
+        c.p.stdin.flush()
+        notes = 0
+        while True:
+            m = json.loads(c.p.stdout.readline().decode('utf-8'))
+            if m.get('method') == 'notifications/progress':
+                assert m['params']['progressToken'] == 'p1'
+                notes += 1
+            else:
+                assert not m['result']['isError']
+                break
+        assert notes >= 1
+    finally:
+        c.close()
+
+
 def test_sdk_client_compat():
     """공식 MCP SDK 클라이언트(있을 때만)로도 연결·호출이 되는지."""
     try:

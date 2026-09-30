@@ -74,6 +74,8 @@ class Renderer:
     def __init__(self, pkg: Package):
         self.pkg = pkg
         self.head = pkg.header()
+        from .styleprint import Styles
+        self.st = Styles(self.head.root)
         self.root = pkg.section_root(0)
         self.page = page_info(self.root)
         self.bin = {}
@@ -121,6 +123,18 @@ class Renderer:
             style = f'font-size:{ch.get("height", 1000) / 100:.1f}pt;color:{ch.get("color", "#000")};'
             if ch.get('bold'):
                 style += 'font-weight:bold;'
+            sc = self.st.char.get(run.get('charPrIDRef'), {})
+            try:
+                # 자간(글자 폭 대비 %)과 장평(글자 폭 %)은 글자 간격으로 근사한다 — 한글 문서는 자간 -5% 안팎을 흔히 써서 줄 바꿈 위치가 달라진다
+                ls_em = (float(sc.get('spacing', 0)) + (float(sc.get('ratio', 100)) - 100)) / 100.0
+            except (TypeError, ValueError):
+                ls_em = 0.0
+            if abs(ls_em) > 0.001:
+                style += f'letter-spacing:{ls_em:.3f}em;'
+            if sc.get('italic'):
+                style += 'font-style:italic;'
+            if sc.get('under'):
+                style += 'text-decoration:underline;'
             spans.append(f'<span style="{style}">{html.escape(txt).replace(" ", "&nbsp;") if txt.strip() == "" else html.escape(txt)}</span>')
         pb = p.get('pageBreak') == '1'
         if tables:

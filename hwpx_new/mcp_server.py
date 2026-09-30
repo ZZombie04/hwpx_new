@@ -10,6 +10,8 @@ import base64
 import json
 import os
 import sys
+import threading
+import time
 import traceback
 
 GUIDE = os.path.join(os.path.dirname(__file__), 'FORMAT.md')
@@ -18,6 +20,28 @@ SERVER_VERSION = '2.0.0'
 SUPPORTED = ('2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07')
 
 TOOLS = {}
+_LOCK = threading.Lock()
+_CTX = {'out': None, 'token': None}
+
+
+def _write(obj):
+    out = _CTX['out'] or sys.stdout
+    with _LOCK:
+        out.write(json.dumps(obj, ensure_ascii=False) + '\n')
+        out.flush()
+
+
+def _progress(n=0, total=None, msg=''):
+    """클라이언트가 progressToken 을 줬을 때만 진행 알림을 보낸다(오래 걸리는 빌드가 시간 초과로 끊기지 않도록)."""
+    tok = _CTX.get('token')
+    if tok is None:
+        return
+    p = {'progressToken': tok, 'progress': n}
+    if total is not None:
+        p['total'] = total
+    if msg:
+        p['message'] = msg
+    _write({'jsonrpc': '2.0', 'method': 'notifications/progress', 'params': p})
 
 
 def tool(description, **props):
@@ -99,7 +123,7 @@ def hwpx_read(path):
       engine=('string', 'hancom|libreoffice|html (생략 시 자동)', False))
 def hwpx_build(template_path, content, output_dir, name='', engine=''):
     from .pipeline import make_report, summarize
-    res = make_report(template_path, content, output_dir, name=name or None, engine=engine or None)
+    res = make_report(template_path, content, output_dir, name=name or None, engine=engine or None, progress=_progress)
     return summarize(res)
 
 
@@ -178,6 +202,15 @@ def handle(msg):
         if name not in TOOLS:
             return err(-32602, f'알 수 없는 도구: {name}')
         args = params.get('arguments') or {}
+        _CTX['token'] = (params.get('_meta') or {}).get('progressToken')
+        stop = threading.Event()
+
+        def beat():
+            t0 = time.time()
+            while not stop.wait(8.0):
+                _progress(int(time.time() - t0), None, '작업 중… (한글 변환은 1~2분 걸릴 수 있습니다)')
+        if _CTX['token'] is not None:
+            threading.Thread(target=beat, daemon=True).start()
         try:
             res = TOOLS[name]['fn'](**args)
             return ok({'content': _content(res), 'isError': False})
@@ -185,6 +218,9 @@ def handle(msg):
             return ok({'content': [{'type': 'text', 'text': f'인자 오류: {e}'}], 'isError': True})
         except Exception as e:  # noqa
             return ok({'content': [{'type': 'text', 'text': f'오류: {e}'}], 'isError': True})
+        finally:
+            stop.set()
+            _CTX['token'] = None
     if method in ('resources/list', 'prompts/list'):
         return ok({'resources' if method == 'resources/list' else 'prompts': []})
     return err(-32601, f'지원하지 않는 메서드: {method}')
@@ -197,6 +233,7 @@ def main():
         except Exception:  # noqa
             pass
     out = sys.stdout
+    _CTX['out'] = out
     sys.stdout = sys.stderr            # 도구 안의 print 가 프로토콜 출력을 깨뜨리지 않도록
     for line in sys.stdin:
         line = line.strip()
@@ -212,8 +249,7 @@ def main():
             traceback.print_exc(file=sys.stderr)
             resp = {'jsonrpc': '2.0', 'id': msg.get('id'), 'error': {'code': -32603, 'message': '내부 오류'}}
         if resp is not None:
-            out.write(json.dumps(resp, ensure_ascii=False) + '\n')
-            out.flush()
+            _write(resp)
 
 
 if __name__ == '__main__':
