@@ -49,13 +49,16 @@ def inspect(pdf, probes):
     for k, pr in enumerate(probes):
         locs = [l for l in found.get(pr['i'], []) if l]
         typ = pr['type']
-        if typ == 'table' and len(locs) == 2 and locs[0][0] != locs[1][0]:
-            issues.append({'kind': 'split_table', 'spec': pr['i'], 'page': locs[0][0] + 1})
+        if typ == 'table' and len(locs) >= 2 and locs[0][0] != locs[-1][0]:
+            pgs = [l[0] for l in locs]
+            # 쪽 사이에서 잘려도 양쪽에 2행 이상 남으면 자연스러운 분할(머리글 반복)로 본다
+            if min(pgs.count(pgs[0]), pgs.count(pgs[-1])) < 2 or len(set(pgs)) > 2:
+                issues.append({'kind': 'split_table', 'spec': pr['i'], 'page': locs[0][0] + 1})
         if typ == 'heading' and locs and k + 1 < len(probes):
             nxt = [l for l in found.get(probes[k + 1]['i'], []) if l]
             if nxt and nxt[0][0] > locs[0][0]:
                 issues.append({'kind': 'orphan_heading', 'spec': pr['i'], 'page': locs[0][0] + 1})
-    if len(pages) > 1 and pages[-1]['n_lines'] <= 3 and pages[-1]['n_lines'] > 0:
+    if len(pages) > 1 and pages[-1]['n_lines'] > 0 and (pages[-1]['n_lines'] <= 3 or pages[-1]['fill'] < 0.16):
         issues.append({'kind': 'widow_last_page', 'page': len(pages), 'lines': pages[-1]['n_lines']})
     return {'n_pages': len(pages), 'pages': pages, 'issues': issues, 'probe_pages': {
         i: [(l[0] + 1) if l else None for l in v] for i, v in found.items()}}

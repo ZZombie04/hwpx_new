@@ -72,8 +72,16 @@ def lint_content(specs):
             ncol = len(hdr[0]) if hdr and isinstance(hdr[0], list) else len(hdr)
             if ncol >= 8:
                 warns.append(f'표(블록 {i + 1})의 열이 {ncol}개로 많아 글자가 좁게 나올 수 있습니다.')
+            carry = [0] * max(ncol, 1)   # 위 행의 rowspan 이 차지한 칸 수
             for r in s.get('rows') or []:
-                if ncol and len(r) != ncol and not any(isinstance(c, dict) and (c.get('colspan') or c.get('rowspan')) for c in r):
+                used = sum(1 for x in carry if x > 0)
+                carry = [max(0, x - 1) for x in carry]
+                span = sum(int(c.get('colspan', 1)) if isinstance(c, dict) else 1 for c in r)
+                rs_cells = [c for c in r if isinstance(c, dict) and int(c.get('rowspan', 1)) > 1]
+                for c in rs_cells:
+                    for k in range(min(int(c.get('colspan', 1)), len(carry))):
+                        carry[k] = max(carry[k], int(c['rowspan']) - 1)
+                if ncol and span + used != ncol:
                     warns.append(f'표(블록 {i + 1})의 한 행 칸 수({len(r)})가 머리글({ncol})과 다릅니다: {str(r)[:40]}')
                     break
     return warns
@@ -171,6 +179,9 @@ def make_report(template, content, out_dir, name=None, engine=None, autofix=True
                 import pymupdf
                 pdir = os.path.join(out_dir, name + '_미리보기')
                 os.makedirs(pdir, exist_ok=True)
+                for old_png in os.listdir(pdir):
+                    if old_png.startswith('page_') and old_png.endswith('.png'):
+                        os.remove(os.path.join(pdir, old_png))
                 d = pymupdf.open(final_pdf)
                 for i, pg in enumerate(d):
                     f = os.path.join(pdir, f'page_{i + 1}.png')

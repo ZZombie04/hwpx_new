@@ -118,15 +118,22 @@ def available_engines():
     return res
 
 
+_FAILED = set()    # 이번 실행에서 실패한 엔진(자동 보정 반복 때 같은 대기를 되풀이하지 않도록)
+
+
 def convert(hwpx, pdf, prefer=None):
     """반환: (engine, log). 엔진명이 None 이면 실패."""
     order = [prefer] if prefer else []
     order += [e for e in ('hancom', 'libreoffice', 'html') if e not in order]
     log = []
     for name in order:
+        if name in _FAILED:
+            continue
         ok, msg = ENGINES[name](hwpx, pdf)
         if ok:
             return name, log
+        if name != 'html':
+            _FAILED.add(name)
         log.append(f'{name}: {msg}')
     return None, log
 

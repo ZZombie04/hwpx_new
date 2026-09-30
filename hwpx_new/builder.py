@@ -169,6 +169,15 @@ class Kit:
         depth = min(want if want is not None else 0, len(ordered) - 1)
         return ordered[depth][1]
 
+    def numbered_extra(self, text):
+        """서식에 없는 더 깊은 번호 단계(예: 1) 가) )는 마지막 단계에서 몇 단계 더 들여쓸지."""
+        lst = self.by_role.get('numbered', [])
+        cls = {self.num_class(b.text) for b in lst if self.num_class(b.text) is not None}
+        want = self.num_class(text)
+        if want is None or want in cls or not cls:
+            return 0
+        return max(0, min(want, 5) - (len(cls) - 1))
+
     def proto(self, role, level=1, text=None):
         if role == 'numbered':
             return self.numbered_proto(text)
@@ -400,6 +409,10 @@ class Builder:
             (set_heading_text if role == 'heading' else set_text)(target, text)
             self._renew_tables(el)
         else:
+            if role == 'numbered':
+                ex = self.kit.numbered_extra(text)
+                if ex:
+                    el.set('paraPrIDRef', self.indented_para(el.get('paraPrIDRef'), 1300 * ex))
             if role == 'bullet':
                 set_bullet_text(el, text)
             elif role == 'heading_text':
@@ -926,10 +939,17 @@ class Builder:
             rows = s.get('rows') or []
             hdr = s.get('header') or []
             hdr = hdr[0] if hdr and isinstance(hdr[0], list) else hdr
-            if rows:
-                pr['texts'] = [first(rows[0][0])[:10] if rows[0] else '', first(rows[-1][0])[:10] if rows[-1] else '']
-            elif hdr:
-                pr['texts'] = [first(hdr[0])[:10]]
+            texts = []
+            for r in rows[:16]:
+                t = ''
+                for cell in r:
+                    t = first(cell)[:10]
+                    if len(t) >= 2:
+                        break
+                texts.append(t)
+            if not texts and hdr:
+                texts = [first(hdr[0])[:10]]
+            pr['texts'] = texts
         pr['texts'] = [t for t in pr['texts'] if len(t) >= 2]
         return pr
 

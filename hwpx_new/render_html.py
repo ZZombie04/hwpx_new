@@ -175,7 +175,7 @@ class Renderer:
         pg = self.page
         body = ''.join(self.render_p(p, True) for p in self.root.findall(HP + 'p'))
         return f'''<!doctype html><html><head><meta charset="utf-8"><style>
-@page {{ size: {pg["width"] / 100:.1f}pt {pg["height"] / 100:.1f}pt; margin: {pg["top"] / 100:.1f}pt {pg["right"] / 100:.1f}pt {pg["bottom"] / 100:.1f}pt {pg["left"] / 100:.1f}pt; }}
+@page {{ size: {pg["width"] / 100:.1f}pt {pg["height"] / 100:.1f}pt; margin: {pg["top"] / 100:.1f}pt {pg["right"] / 100:.1f}pt {max(pg["bottom"] / 100 - 3, 0):.1f}pt {pg["left"] / 100:.1f}pt; }}
 *{{box-sizing:border-box}}
 body {{ font-family: "Malgun Gothic","맑은 고딕","Noto Sans KR","Noto Sans CJK KR","Apple SD Gothic Neo",sans-serif; margin:0; }}
 body {{ word-break: keep-all; overflow-wrap: anywhere; }}
