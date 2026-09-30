@@ -165,6 +165,21 @@ def test_table_proto_and_floating():
     assert el2.find('.//' + HP + 'tbl') is not None and el2.find('.//' + HP + 'tbl').get('rowCnt') == '3'   # proto 지정 표
 
 
+def test_replace_text_across_runs_and_repeats():
+    from lxml import etree
+    from hwpx_new.builder import Builder
+    from hwpx_new.package import HP
+    b = Builder(TPL)
+    p = etree.Element(HP + 'p')
+    r1 = etree.SubElement(p, HP + 'run')
+    etree.SubElement(r1, HP + 't').text = 'A 경기초등 키즈런 대회, 그리고 경기초'
+    r2 = etree.SubElement(p, HP + 'run')
+    etree.SubElement(r2, HP + 't').text = '등 키즈런 대회'
+    b._replace_text(p, {'경기초등 키즈런': '평택 키즈런'})
+    txt = ''.join(''.join(t.itertext()) for t in p.iter(HP + 't'))
+    assert '경기초' not in txt and txt.count('평택 키즈런') == 2, txt
+
+
 if __name__ == '__main__':
     for name, fn in list(globals().items()):
         if name.startswith('test_'):

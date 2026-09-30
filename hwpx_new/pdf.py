@@ -42,8 +42,8 @@ def _kill_new_hwp(before):
         subprocess.run(['taskkill', '/F', '/PID', str(pid)], capture_output=True, timeout=20)
 
 
-HANCOM_HINT = ('한글이 응답하지 않았습니다. 한글 화면에 "파일 접근 허용" 보안 승인 창이 떠 있을 수 있습니다. '
-               '그 창에서 [허용]을 누르면(또는 README 의 "한글 자동화 승인" 참고) 다음부터 자동 변환됩니다.')
+HANCOM_HINT = ('한글이 제한 시간 안에 응답하지 않았습니다. 사진이 많은 큰 문서는 PDF 저장에 몇 분 걸릴 수 있고(환경변수 HWPX_NEW_TIMEOUT 로 '
+               '초 단위 조절), 한글 화면에 "파일 접근 허용" 보안 승인 창이 떠 있으면 [허용]을 눌러야 합니다.')
 
 
 def _work_dir():
@@ -53,18 +53,25 @@ def _work_dir():
     return d
 
 
-def _hancom(hwpx, pdf, timeout=75):
+def _hancom(hwpx, pdf, timeout=None):
+    timeout = timeout or int(os.environ.get('HWPX_NEW_TIMEOUT', '240'))
     if sys.platform != 'win32':
         return False, '한글은 Windows 에서만 자동 변환할 수 있습니다.'
     ps = shutil.which('powershell') or shutil.which('pwsh')
     if not ps:
         return False, 'PowerShell 을 찾지 못했습니다.'
     wd = _work_dir()
-    w_in = os.path.join(wd, 'convert_in.hwpx')
-    w_out = os.path.join(wd, 'convert_out.pdf')
+    import uuid
+    tag = uuid.uuid4().hex[:8]                       # 이전 실행이 파일을 붙잡고 있어도 충돌하지 않도록 매번 다른 이름
+    for old in os.listdir(wd):
+        if old.startswith('convert_'):
+            try:
+                os.remove(os.path.join(wd, old))
+            except OSError:
+                pass
+    w_in = os.path.join(wd, f'convert_{tag}.hwpx')
+    w_out = os.path.join(wd, f'convert_{tag}.pdf')
     shutil.copyfile(hwpx, w_in)
-    if os.path.exists(w_out):
-        os.remove(w_out)
     tmp = tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8-sig', dir=wd)
     tmp.write(PS_SCRIPT)
     tmp.close()
@@ -146,6 +153,13 @@ def convert(hwpx, pdf, prefer=None):
         if name in _FAILED:
             continue
         ok, msg = ENGINES[name](hwpx, pdf)
+        tries = 0
+        while not ok and name == 'hancom' and tries < 2 and ('응답하지' in msg or 'CO_E_SERVER' in msg or 'New-Object' in msg
+                                                             or 'RPC' in msg):
+            tries += 1
+            import time
+            time.sleep(4)
+            ok, msg = ENGINES[name](hwpx, pdf)     # 한글 첫 실행이 느려 타임아웃 나는 경우가 있어 최대 3번까지 시도
         if ok:
             return name, log
         if name != 'html':

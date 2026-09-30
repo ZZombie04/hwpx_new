@@ -836,24 +836,19 @@ class Builder:
                 ctrl.getparent().remove(ctrl)
 
     def _replace_text(self, el, mapping):
-        """복제한 요소 안의 모든 문단에서 문구 치환. 한 글자 덩어리 안이면 서식을 보존한다."""
+        """복제한 요소 안의 모든 문단에서 문구 치환. 한 글자 덩어리 안이면 서식을 보존하고,
+        여러 덩어리에 걸친 문구가 남아 있으면 문단 전체를 합쳐 치환한다."""
         for p in el.iter(HP + 'p'):
-            ts = own_ts(p)
-            if not ts:
+            if not own_ts(p):
                 continue
             for old, new in mapping.items():
-                done = False
-                for t in ts:
+                for t in own_ts(p):
                     s = ''.join(t.itertext())
                     if old in s:
                         _set_t(t, s.replace(old, new))
-                        done = True
-                if done:
-                    continue
-                full = ''.join(''.join(t.itertext()) for t in ts)
+                full = ''.join(''.join(t.itertext()) for t in own_ts(p))
                 if old in full:
                     set_text(p, full.replace(old, new))
-                    ts = own_ts(p)
 
     def make_clone(self, spec):
         """서식의 블록(들)을 그대로 복제. texts(순서대로 교체) / text(문단 전체 교체) / replace(문구 치환) 지원.

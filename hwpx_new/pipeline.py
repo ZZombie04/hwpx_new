@@ -125,7 +125,7 @@ def make_report(template, content, out_dir, name=None, engine=None, autofix=True
                 break
             log += elog
             q = qamod.inspect(tmp_p, probes)
-            score = sum({'blank_page': 5, 'orphan_heading': 3, 'split_table': 4, 'widow_last_page': 2}.get(i['kind'], 1)
+            score = sum({'blank_page': 5, 'orphan_heading': 3, 'split_table': 4, 'widow_last_page': 2, 'short_page': 2}.get(i['kind'], 1)
                         for i in q['issues']) * 100 + q['n_pages']
             cand = {'state': state, 'hwpx': tmp_h, 'pdf': tmp_p, 'qa': q, 'score': score,
                     'warnings': builder.warnings}
@@ -138,18 +138,26 @@ def make_report(template, content, out_dir, name=None, engine=None, autofix=True
             changed = False
             for iss in q['issues']:
                 if iss['kind'] == 'orphan_heading' and iss['spec'] not in nb:
-                    nb.add(iss['spec'])
+                    top = iss['spec']
+                    while top > 0 and (specs[top - 1].get('type') == 'heading' or specs[top - 1].get('qa') == 'heading'):
+                        top -= 1                      # 소제목 바로 아래 소제목/머리 문단까지 함께 다음 쪽으로
+                    nb.add(top)
                     if iss['spec'] + 1 not in user_breaks:
                         nb.discard(iss['spec'] + 1)   # 소제목과 붙은 표는 같이 넘어가므로 중복 쪽 나눔 제거
                     changed = True
                 elif iss['kind'] == 'split_table' and iss['spec'] not in nb:
                     i = iss['spec']
-                    # 바로 위가 소제목이면 소제목째로 넘긴다
-                    if i > 0 and (specs[i - 1].get('type') == 'heading' or specs[i - 1].get('qa') == 'heading') and (i - 1) not in nb:
-                        nb.add(i - 1)
+                    top = i
+                    while top > 0 and (specs[top - 1].get('type') == 'heading' or specs[top - 1].get('qa') == 'heading'):
+                        top -= 1
+                    if top < i:
+                        # 소제목 묶음째 넘긴다. 이미 소제목이 쪽 맨 위라면(표가 한 쪽보다 큼) 더 할 수 있는 것이 없다
+                        if top not in nb:
+                            nb.add(top)
+                            changed = True
                     else:
                         nb.add(i)
-                    changed = True
+                        changed = True
                 elif iss['kind'] == 'blank_page':
                     # 빈 쪽을 만든 자동 쪽나눔부터 해제
                     for s_ in sorted(nb - user_breaks):
@@ -160,7 +168,7 @@ def make_report(template, content, out_dir, name=None, engine=None, autofix=True
                         if nc < 2:
                             nc += 1
                             changed = True
-                elif iss['kind'] == 'widow_last_page' and nc < 2:
+                elif iss['kind'] in ('widow_last_page', 'short_page') and nc < 2:
                     nc += 1
                     changed = True
             ns = (frozenset(nb), nc)
