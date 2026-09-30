@@ -8,92 +8,12 @@ import subprocess
 import sys
 import tempfile
 
-PS_SCRIPT = r"""
-$ErrorActionPreference = 'Stop'
-# 사용자가 이미 열어 둔 한글 창은 건드리지 않기 위해, 이 스크립트가 띄운 프로세스만 정리한다.
-$before = @(Get-Process -Name Hwp -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
-try {
-  $h = New-Object -ComObject HWPFrame.HwpObject
-  try { $h.RegisterModule('FilePathCheckDLL','FilePathCheckerModule') | Out-Null } catch {}
-  $ok = $h.Open($args[0], 'HWPX', '')
-  if (-not $ok) { throw 'Open failed' }
-  $h.SaveAs($args[1], 'PDF', '') | Out-Null
-  try { $h.Clear(1) | Out-Null } catch {}
-  try { $h.Quit() | Out-Null } catch {}
-} finally {
-  Start-Sleep -Milliseconds 300
-  Get-Process -Name Hwp -ErrorAction SilentlyContinue | Where-Object { $before -notcontains $_.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
-}
-"""
-
-
-def _hwp_pids():
-    try:
-        r = subprocess.run(['tasklist', '/FO', 'CSV', '/NH', '/FI', 'IMAGENAME eq Hwp.exe'],
-                           capture_output=True, text=True, errors='replace', timeout=20)
-        return {int(l.split('","')[1]) for l in r.stdout.splitlines() if l.startswith('"Hwp.exe"')}
-    except Exception:  # noqa
-        return set()
-
-
-def _kill_new_hwp(before):
-    """이 도구가 띄운 한글 프로세스만 종료(사용자가 열어 둔 한글은 건드리지 않음)."""
-    for pid in _hwp_pids() - before:
-        subprocess.run(['taskkill', '/F', '/PID', str(pid)], capture_output=True, timeout=20)
-
-
-HANCOM_HINT = ('한글이 제한 시간 안에 응답하지 않았습니다. 사진이 많은 큰 문서는 PDF 저장에 몇 분 걸릴 수 있고(환경변수 HWPX_NEW_TIMEOUT 로 '
-               '초 단위 조절), 한글 화면에 "파일 접근 허용" 보안 승인 창이 떠 있으면 [허용]을 눌러야 합니다.')
-
-
-def _work_dir():
-    """한글의 '파일 접근 허용' 승인은 폴더 단위로 기억되는 경우가 많아, 변환용 파일은 항상 같은 폴더를 쓴다."""
-    d = os.environ.get('HWPX_NEW_WORK') or os.path.join(os.path.expanduser('~'), '.hwpx_new', 'work')
-    os.makedirs(d, exist_ok=True)
-    return d
+from . import hancom
 
 
 def _hancom(hwpx, pdf, timeout=None):
-    timeout = timeout or int(os.environ.get('HWPX_NEW_TIMEOUT', '240'))
-    if sys.platform != 'win32':
-        return False, '한글은 Windows 에서만 자동 변환할 수 있습니다.'
-    ps = shutil.which('powershell') or shutil.which('pwsh')
-    if not ps:
-        return False, 'PowerShell 을 찾지 못했습니다.'
-    wd = _work_dir()
-    import uuid
-    tag = uuid.uuid4().hex[:8]                       # 이전 실행이 파일을 붙잡고 있어도 충돌하지 않도록 매번 다른 이름
-    for old in os.listdir(wd):
-        if old.startswith('convert_'):
-            try:
-                os.remove(os.path.join(wd, old))
-            except OSError:
-                pass
-    w_in = os.path.join(wd, f'convert_{tag}.hwpx')
-    w_out = os.path.join(wd, f'convert_{tag}.pdf')
-    shutil.copyfile(hwpx, w_in)
-    tmp = tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8-sig', dir=wd)
-    tmp.write(PS_SCRIPT)
-    tmp.close()
-    before = _hwp_pids()
-    try:
-        r = subprocess.run([ps, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmp.name, w_in, w_out],
-                           capture_output=True, text=True, errors='replace', timeout=timeout)
-        if os.path.exists(w_out) and os.path.getsize(w_out) > 1000:
-            shutil.copyfile(w_out, pdf)
-            return True, ''
-        return False, (r.stderr or r.stdout or '한글 변환 실패').strip()[:300]
-    except subprocess.TimeoutExpired:
-        return False, HANCOM_HINT
-    except Exception as e:  # noqa
-        return False, str(e)
-    finally:
-        _kill_new_hwp(before)
-        for f in (tmp.name, w_in, w_out):
-            try:
-                os.unlink(f)
-            except OSError:
-                pass
+    ok, msg, _info = hancom.export_pdf(hwpx, pdf, timeout)
+    return ok, msg
 
 
 def _libreoffice(hwpx, pdf, timeout=150):
@@ -130,10 +50,7 @@ ENGINES = {'hancom': _hancom, 'libreoffice': _libreoffice, 'html': _html}
 
 def available_engines():
     res = {}
-    res['hancom'] = sys.platform == 'win32' and bool(shutil.which('powershell') or shutil.which('pwsh')) and any(
-        os.path.exists(p) for p in (
-            r'C:\Program Files (x86)\Hnc', r'C:\Program Files\Hnc', r'C:\Program Files (x86)\HNC',
-            r'C:\Program Files\HNC'))
+    res['hancom'] = hancom.installed() and bool(hancom._ps())
     res['libreoffice'] = bool(shutil.which('soffice') or shutil.which('libreoffice'))
     from .render_html import find_browser
     res['html'] = True
@@ -154,8 +71,8 @@ def convert(hwpx, pdf, prefer=None):
             continue
         ok, msg = ENGINES[name](hwpx, pdf)
         tries = 0
-        while not ok and name == 'hancom' and tries < 2 and ('응답하지' in msg or 'CO_E_SERVER' in msg or 'New-Object' in msg
-                                                             or 'RPC' in msg):
+        while not ok and name == 'hancom' and tries < 2 and ('제한 시간' in msg or 'CO_E_SERVER' in msg
+                                                             or 'New-Object' in msg or 'RPC' in msg or '80080005' in msg):
             tries += 1
             import time
             time.sleep(4)
@@ -168,42 +85,8 @@ def convert(hwpx, pdf, prefer=None):
     return None, log
 
 
-PS_HWP2HWPX = r"""
-$ErrorActionPreference = 'Stop'
-$before = @(Get-Process -Name Hwp -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
-try {
-  $h = New-Object -ComObject HWPFrame.HwpObject
-  try { $h.RegisterModule('FilePathCheckDLL','FilePathCheckerModule') | Out-Null } catch {}
-  $ok = $h.Open($args[0], 'HWP', '')
-  if (-not $ok) { throw 'Open failed' }
-  $h.SaveAs($args[1], 'HWPX', '') | Out-Null
-  try { $h.Clear(1) | Out-Null } catch {}
-  try { $h.Quit() | Out-Null } catch {}
-} finally {
-  Start-Sleep -Milliseconds 300
-  Get-Process -Name Hwp -ErrorAction SilentlyContinue | Where-Object { $before -notcontains $_.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
-}
-"""
-
-
-def hwp_to_hwpx(hwp, out, timeout=90):
+def hwp_to_hwpx(hwp, out, timeout=120):
     """옛 .hwp 를 .hwpx 로 변환(Windows + 한글 필요). 반환: (성공, 메시지)"""
     if sys.platform != 'win32':
         return False, '.hwp → .hwpx 자동 변환은 Windows + 한글에서만 가능합니다. 한글에서 [다른 이름으로 저장 → HWPX] 로 저장하세요.'
-    ps = shutil.which('powershell') or shutil.which('pwsh')
-    tmp = tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8-sig')
-    tmp.write(PS_HWP2HWPX)
-    tmp.close()
-    try:
-        if os.path.exists(out):
-            os.remove(out)
-        r = subprocess.run([ps, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmp.name,
-                            os.path.abspath(hwp), os.path.abspath(out)],
-                           capture_output=True, text=True, errors='replace', timeout=timeout)
-        if os.path.exists(out) and os.path.getsize(out) > 1000:
-            return True, out
-        return False, (r.stderr or r.stdout or '변환 실패').strip()[:300]
-    except Exception as e:  # noqa
-        return False, str(e)
-    finally:
-        os.unlink(tmp.name)
+    return hancom.hwp_to_hwpx(hwp, out, timeout)

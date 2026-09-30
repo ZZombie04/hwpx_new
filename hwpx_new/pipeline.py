@@ -87,9 +87,47 @@ def lint_content(specs):
     return warns
 
 
+def lint_leftovers(template, out_hwpx, specs):
+    """서식 원문의 문장이 결과에 그대로 남았는지(기관명·날짜 같은 옛 글을 못 바꾼 경우) 찾는다. 일부러 복제한 블록은 제외."""
+    from .analyze import analyze, ptext
+    from .package import HP
+    try:
+        bp = analyze(template)
+        b = Package(out_hwpx)
+    except Exception:  # noqa
+        return []
+
+    def norm(t):
+        return re.sub(r'\s+', ' ', t).strip()
+
+    tmpl = set()
+    for blk in bp.blocks:
+        for p in blk.el.iter(HP + 'p'):
+            t = norm(ptext(p))
+            if len(t) >= 10:
+                tmpl.add(t)
+    allowed = set()
+    for s in specs:
+        if s.get('type') in ('clone', 'like') and int(s.get('section', 0)) == 0:
+            i, j = int(s['from']), int(s.get('to', s['from']))
+            for blk in bp.blocks[i:j + 1]:
+                for p in blk.el.iter(HP + 'p'):
+                    allowed.add(norm(ptext(p)))
+    left = []
+    for p in b.section_root(0).iter(HP + 'p'):
+        t = norm(ptext(p))
+        if t in tmpl and t not in allowed and t not in left:
+            left.append(t)
+    if not left:
+        return []
+    return ['서식 원문의 문장이 그대로 남아 있습니다(새 내용으로 바꿨는지 확인하세요): '
+            + ' / '.join(x[:30] for x in left[:5]) + (f' … 외 {len(left) - 5}곳' if len(left) > 5 else '')]
+
+
 def make_report(template, content, out_dir, name=None, engine=None, autofix=True, max_rounds=6,
                 previews=True, dpi=70, base_dir=None):
     """content: 파일 경로 | JSON 문자열 | Markdown 문자열.  반환: dict(결과 요약)."""
+    pdfmod._FAILED.clear()         # 오래 켜 둔 MCP 서버에서도 이전 빌드의 일시적 실패가 한글 엔진을 영구히 막지 않도록
     specs, meta = load_content(content)
     if base_dir is None:
         base_dir = os.path.dirname(os.path.abspath(content)) if len(content) < 500 and os.path.exists(content) else os.getcwd()
@@ -210,7 +248,8 @@ def make_report(template, content, out_dir, name=None, engine=None, autofix=True
             'rounds': rounds, 'auto_page_breaks': sorted(best['state'][0] - user_breaks),
             'compact_level': best['state'][1],
             'remaining_issues': [qamod.describe(i) for i in remaining],
-            'warnings': lint + best['warnings'] + ['구조 검증: ' + e for e in struct], 'log': log,
+            'warnings': lint + best['warnings'] + lint_leftovers(template, final_hwpx, specs) + ['구조 검증: ' + e for e in struct],
+            'log': log,
             'approximate_pdf': eng == 'html',
         }
     finally:

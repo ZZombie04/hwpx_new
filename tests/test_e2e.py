@@ -23,7 +23,8 @@ def test_analyze_roles():
     for b in bp.blocks:
         roles[b.role] = roles.get(b.role, 0) + 1
     assert roles['title'] == 1 and roles['heading'] == 5 and roles['table'] == 3 and roles['box'] == 1
-    assert roles.get('subtitle') == 1 and roles['bullet'] >= 5
+    assert bp.cover_end == 2 and roles['bullet'] >= 5          # 표지 = 제목 표 + 부서 문단
+    assert bp.classes['H1']['count'] == 5
     assert 'Ⅰ.' in scaffold_markdown(bp)
 
 

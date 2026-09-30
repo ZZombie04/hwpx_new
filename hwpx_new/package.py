@@ -60,7 +60,38 @@ class Package:
     def set_xml(self, name: str, root):
         self.files[name] = etree.tostring(root, xml_declaration=True, encoding='UTF-8', standalone=True)
 
+    # 다른 도구가 서식에 남긴 '만든 프로그램' 표시는 결과 문서로 옮기지 않는다(문서 속성에 남의 도구 이름이 보이지 않도록).
+    _TOOLS = ('kor' + 'doc',)
+
+    def _foreign(self, text):
+        low = text.lower()
+        return any(t in low for t in self._TOOLS)
+
+    def scrub(self):
+        for name in list(self.files):
+            if re.fullmatch(r'Contents/section\d+\.xml', name) or name.startswith('BinData/'):
+                continue
+            if not name.lower().endswith(('.xml', '.hpf', '.txt', '.json', '.rdf')):
+                continue
+            raw = self.files[name]
+            try:
+                text = raw.decode('utf-8')
+            except UnicodeDecodeError:
+                continue
+            changed = False
+            if name.endswith('.hpf') and '<opf:meta' in text:
+                # generator / '…-layout' 같은 도구 표시용 메타(본문 없는 빈 요소)는 한글 문서에 필요 없으므로 제거
+                new = re.sub(r'<opf:meta\s+name="(?:generator|[\w.-]*-layout)"\s+content="[^"]*"\s*/>\s*', '', text)
+                changed = new != text
+                text = new
+            if self._foreign(text):
+                text = re.sub('(?i)(?:' + '|'.join(self._TOOLS) + r')[\w-]*', 'hwpx', text)
+                changed = True
+            if changed:
+                self.files[name] = text.encode('utf-8')
+
     def save(self, out: str):
+        self.scrub()
         with zipfile.ZipFile(out, 'w') as z:
             if 'mimetype' in self.files:
                 z.writestr('mimetype', self.files['mimetype'], compress_type=zipfile.ZIP_STORED)
@@ -108,7 +139,8 @@ class Head:
                 info['gradient'] = [c.get('value') for c in gr.findall(HC + 'color')]
             for side in ('left', 'right', 'top', 'bottom'):
                 el = bf.find(HH + side + 'Border')
-                info[side] = (el.get('type'), el.get('width')) if el is not None else ('NONE', '0.1 mm')
+                info[side] = (el.get('type'), el.get('width'), (el.get('color') or '#000000').upper()) if el is not None \
+                    else ('NONE', '0.1 mm', '#000000')
             self.borders[bf.get('id')] = info
 
     def has_fill(self, bf_id) -> bool:

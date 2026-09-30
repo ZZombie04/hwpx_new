@@ -56,12 +56,13 @@ def _border_css(head, bf_id):
         return ''
     css = []
     for side in ('left', 'right', 'top', 'bottom'):
-        typ, w = b[side]
+        typ, w = b[side][:2]
+        color = b[side][2] if len(b[side]) > 2 else '#000'
         if typ in (None, 'NONE'):
             css.append(f'border-{side}:none')
         else:
             style = 'dashed' if 'DASH' in typ else ('dotted' if 'DOT' in typ else ('double' if 'DOUBLE' in typ else 'solid'))
-            css.append(f'border-{side}:{_bw(w):.2f}pt {style} #000')
+            css.append(f'border-{side}:{_bw(w):.2f}pt {style} {color}')
     if b['gradient']:
         css.append(f'background:linear-gradient(to right,{b["gradient"][0]},{b["gradient"][-1]})')
     elif b['fill']:
@@ -183,6 +184,37 @@ table {{ page-break-inside: auto; }} tr {{ page-break-inside: avoid; }}
 </style></head><body>{body}</body></html>'''
 
 
+def _run_browser(cmd, pdf, timeout):
+    """브라우저를 띄워 PDF 를 만들고, 파일이 완성되면(크기가 멈추면) 브라우저가 스스로 끝나길 기다리지 않고 정리한다."""
+    import time
+    p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    t0 = time.time()
+    last = -1
+    stable = 0
+    try:
+        while time.time() - t0 < timeout:
+            if p.poll() is not None:
+                return
+            if os.path.exists(pdf):
+                sz = os.path.getsize(pdf)
+                if sz > 1000 and sz == last:
+                    stable += 1
+                    if stable >= 3:
+                        return
+                else:
+                    stable = 0
+                last = sz
+            time.sleep(0.25)
+    finally:
+        if p.poll() is None:
+            p.terminate()
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                p.kill()
+
+
 def render_pdf(hwpx, pdf):
     try:
         pkg = Package(hwpx)
@@ -203,10 +235,9 @@ def render_pdf(hwpx, pdf):
                 prof = tempfile.mkdtemp(dir=tmpd)
                 extra = ['--no-sandbox'] if hasattr(os, 'geteuid') and os.geteuid() == 0 else []
                 try:
-                    subprocess.run([b, flag, '--disable-gpu', f'--user-data-dir={prof}', *extra,
-                                    '--no-pdf-header-footer', f'--print-to-pdf={os.path.abspath(pdf)}',
-                                    'file:///' + hp.replace(chr(92), '/')],
-                                   capture_output=True, timeout=90)
+                    _run_browser([b, flag, '--disable-gpu', f'--user-data-dir={prof}', *extra,
+                                  '--no-pdf-header-footer', f'--print-to-pdf={os.path.abspath(pdf)}',
+                                  'file:///' + hp.replace(chr(92), '/')], os.path.abspath(pdf), 90)
                 except Exception:  # noqa
                     pass
                 if os.path.exists(pdf) and os.path.getsize(pdf) > 1000:

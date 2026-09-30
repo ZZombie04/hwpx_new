@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hwpx-new"
-version = "1.0.0"
+version = "2.0.0"
 description = "한글(HWPX) 서식을 분석해 같은 서식의 새 문서(HWPX + PDF)를 만들어 주는 도구 · CLI · MCP · AI 스킬"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -14,7 +14,6 @@ keywords = ["hwpx", "hwp", "한글", "hancom", "mcp", "skill", "report", "공문
 dependencies = [
   "lxml>=4.9",
   "pymupdf>=1.23",
-  "mcp>=1.2",
   "pillow>=9.0",
 ]
 
@@ -29,4 +28,4 @@ Homepage = "https://github.com/ZZombie04/hwpx_new"
 packages = ["hwpx_new"]
 
 [tool.setuptools.package-data]
-hwpx_new = ["FORMAT.md"]
+hwpx_new = ["FORMAT.md", "data/*.md"]

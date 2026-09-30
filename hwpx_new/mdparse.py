@@ -6,6 +6,7 @@ import json
 import re
 
 IMG_RE = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
+TAG_RE = re.compile(r'^\{([A-Z]\d{1,3})\}\s*')
 NUM_RE = re.compile(r'^(\d{1,2}\s*[\.\)]|[가-힣]\s*[\.\)]|\(\d{1,2}\)|[①-⑳])\s*\S')
 
 
@@ -39,6 +40,10 @@ def parse_markdown(text: str):
         if m:
             pending['page_break'] = True
             continue
+        m = re.fullmatch(r'<!--\s*class\s*:\s*([A-Z]\d{1,3})\s*-->', s)
+        if m:
+            pending['class'] = m.group(1)
+            continue
         m = re.fullmatch(r'<!--\s*(widths|min_row)\s*:\s*([^>]*?)\s*-->', s)
         if m:
             if m.group(1) == 'widths':
@@ -51,10 +56,58 @@ def parse_markdown(text: str):
         def emit(b):
             if pending.pop('page_break', False):
                 b['page_break'] = True
+            if 'class' in pending and b.get('type') == 'table':
+                b['class'] = pending.pop('class')
             blocks.append(b)
 
+        def tagged(text):
+            m_ = TAG_RE.match(text)
+            if m_:
+                return text[m_.end():], m_.group(1)
+            return text, None
+
+        if s.startswith('```'):
+            lang = s[3:].strip().lower()
+            body = []
+            while i < len(lines) and not lines[i].strip().startswith('```'):
+                body.append(lines[i])
+                i += 1
+            i += 1
+            if lang in ('json', ''):
+                try:
+                    data = json.loads('\n'.join(body))
+                except ValueError as e:
+                    raise ValueError(f'```json 블록({i - len(body)}번째 줄 근처)을 읽을 수 없습니다: {e}. '
+                                     '따옴표·쉼표·괄호를 확인하거나, 블록 구조는 그대로 두고 글만 바꾸세요.')
+                for d in (data if isinstance(data, list) else [data]):
+                    emit(d)
+            continue
+        m = re.match(r'^@like\s+(\d+)\s*\|\s?(.*)$', raw.strip())
+        if m:
+            emit({'type': 'like', 'from': int(m.group(1)), 'text': m.group(2)})
+            continue
+        m = re.match(r'^@clone\s+(?:(\d+):)?(\d+)(?:\s*[-~]\s*(\d+))?\s*$', s)
+        if m:
+            d = {'type': 'clone', 'from': int(m.group(2))}
+            if m.group(3):
+                d['to'] = int(m.group(3))
+            if m.group(1):
+                d['section'] = int(m.group(1))
+            emit(d)
+            continue
+        if s.startswith(':::cover'):
+            fields = []
+            while i < len(lines) and lines[i].strip() != ':::':
+                fields.append(lines[i].strip())
+                i += 1
+            i += 1
+            fields = [f for f in fields if f != ''] if not any(f == '' for f in fields[:0]) else fields
+            emit({'type': 'title', 'text': max(fields, key=len) if fields else '', 'fields': fields})
+            continue
+
         if s.startswith(':::box'):
-            title = s[len(':::box'):].strip() or None
+            title, box_cls = tagged(s[len(':::box'):].strip())
+            title = title or None
             body = []
             while i < len(lines) and lines[i].strip() != ':::':
                 if lines[i].strip():
@@ -63,7 +116,10 @@ def parse_markdown(text: str):
             i += 1
             if title is None and body:
                 title, body = body[0], body[1:]
-            emit({'type': 'box', 'title': title, 'lines': body})
+            bx = {'type': 'box', 'title': title, 'lines': body}
+            if box_cls:
+                bx['class'] = box_cls
+            emit(bx)
             continue
         if s.startswith(':::photos'):
             opts = dict(re.findall(r'(\w+)=("[^"]*"|\S+)', s[len(':::photos'):]))
@@ -117,8 +173,8 @@ def parse_markdown(text: str):
             else:
                 head, body = [_split_row(tbl[0])], [_split_row(l) for l in tbl[1:]]
             b = {'type': 'table', 'header': head[0] if len(head) == 1 else head, 'rows': body}
-            if aligns:
-                b['align'] = [a or 'c' for a in aligns]
+            if aligns and any(aligns):
+                b['align'] = [a for a in aligns]
             for key in ('widths', 'min_row'):
                 if key in pending:
                     b[key] = pending.pop(key)
@@ -137,18 +193,38 @@ def parse_markdown(text: str):
             emit({'type': 'title', 'text': s[2:].strip()})
             continue
         if s.startswith('## '):
-            emit({'type': 'heading', 'text': s[3:].strip()})
+            t_, c_ = tagged(s[3:].strip())
+            d = {'type': 'heading', 'text': t_}
+            if c_:
+                d['class'] = c_
+            emit(d)
             continue
         m = re.match(r'^(\s*)([-*•])\s+(.*)$', raw)
         if m:
             indent = len(m.group(1).replace('\t', '  '))
-            emit({'type': 'bullet', 'text': m.group(3).strip(), 'level': indent // 2 + 1})
+            t_, c_ = tagged(m.group(3).strip())
+            d = {'type': 'bullet', 'text': t_, 'level': indent // 2 + 1}
+            if c_:
+                d['class'] = c_
+            emit(d)
             continue
-        if s.startswith('### ') or NUM_RE.match(s):
-            emit({'type': 'numbered', 'text': s[4:].strip() if s.startswith('### ') else s})
-            continue
-        emit({'type': 'paragraph', 'text': s})
+        t_, c_ = tagged(s)
+        if t_.startswith('### ') or NUM_RE.match(t_):
+            d = {'type': 'numbered', 'text': t_[4:].strip() if t_.startswith('### ') else t_}
+        else:
+            d = {'type': 'paragraph', 'text': t_}
+        if c_:
+            d['class'] = c_
+        emit(d)
     return blocks
+
+
+def _unwrap_fence(text: str) -> str:
+    """AI 가 전체 Markdown 을 ```markdown … ``` 으로 감싸 보낸 경우 바깥 울타리를 벗긴다(안쪽 ```json 은 그대로)."""
+    lines = text.strip().split(chr(10))
+    if len(lines) >= 2 and re.match(r'^```\s*(markdown|md)?\s*$', lines[0].strip(), re.I) and lines[-1].strip() == '```':
+        return chr(10).join(lines[1:-1])
+    return text
 
 
 def load_content(src: str):
@@ -165,4 +241,4 @@ def load_content(src: str):
             meta = {k: v for k, v in data.items() if k != 'blocks'}
             return data.get('blocks', []), meta
         return data, meta
-    return parse_markdown(text), meta
+    return parse_markdown(_unwrap_fence(text)), meta

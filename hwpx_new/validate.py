@@ -16,7 +16,7 @@ def validate(path: str):
     bf_ids = set(head.borders)
     style_ids = {s.get('id') for s in head.root.iter(HH + 'style')}
     # 개수 속성 일치
-    for tag, ids in (('paraProperties', para_ids), ('charProperties', char_ids)):
+    for tag, ids in (('paraProperties', para_ids), ('charProperties', char_ids), ('borderFills', bf_ids)):
         el = head.root.find('.//' + HH + tag)
         if el is not None and el.get('itemCnt') and int(el.get('itemCnt')) != len(el):
             errs.append(f'header {tag} itemCnt({el.get("itemCnt")}) 와 실제 개수({len(el)}) 불일치')
@@ -68,6 +68,18 @@ def validate(path: str):
             sub = tc.find(HP + 'subList')
             if sub is None or not sub.findall(HP + 'p'):
                 errs.append(f'표 셀에 문단이 없음: ({r0},{c0})')
+        # 어느 줄을 가로질러도 칸 너비의 합이 표 너비와 크게 다르면(병합 고려) 한글이 열 때 모양이 깨진다
+        try:
+            tw = int(tbl.find(HP + 'sz').get('width'))
+            cells_geo = [(int(tc.find(HP + 'cellAddr').get('rowAddr')), int(tc.find(HP + 'cellSpan').get('rowSpan')),
+                          int(tc.find(HP + 'cellSz').get('width'))) for tc in own_cells]
+            for r_ in range(rows):
+                ws = sum(w for (r0, rs_, w) in cells_geo if r0 <= r_ < r0 + rs_)
+                if tw and abs(ws - tw) > max(300, tw * 0.03):
+                    errs.append(f'표 너비 불일치: {r_}번 줄을 가로지르는 칸 너비 합 {ws} ≠ 표 너비 {tw}')
+                    break
+        except (AttributeError, ValueError, TypeError):
+            pass
         if len(occ) != rows * cols:
             errs.append(f'표 격자가 비어 있음: 채워진 {len(occ)} / {rows * cols}')
     return errs[:20]

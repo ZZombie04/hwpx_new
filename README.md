@@ -10,74 +10,54 @@ Claude · ChatGPT(Codex) · Gemini · Grok · Cursor · Antigravity 등 **어떤
 |:-:|:-:|:-:|
 | ![서식](docs/img/template_p1.png) | | ![결과](docs/img/result_p1.png) |
 
-표지 띠, 소제목 바, 표 색·테두리, 강조 박스, ● 글머리, 쪽 번호까지 **원본 서식 그대로** 복제됩니다.
+표지 띠, 소제목 바, 표 색·테두리, 강조 박스, 글머리 기호, 글자 색·굵기, 줄 간격, 쪽 번호까지 **원본 서식 그대로** 복제됩니다.
 
 ---
 
-## 한눈에 보는 작동 방식
+## 핵심 아이디어: "서식은 도구가, 글은 AI 가"
 
-```
-서식.hwpx ─▶ ① 분석 ─▶ ② 뼈대 파악 ─▶ ③ AI 가 내용 작성 ─▶ ④ 서식 복제 조립 ─▶ ⑤ PDF 변환
-             (표지·소제목·표·박스·         (계획서? 공문?      (Markdown 으로         (원본 서식 그대로     (한글 → 없으면
-              글머리 자동 분류)             어떤 절 구성?)      내용만 씀)             HWPX 생성)           LibreOffice → 내장)
-                                                                                          │
-                              HWPX + PDF ◀─ ⑧ 미리보기 확인 ◀─ ⑦ 자동 보정(쪽 나눔·간격) ◀─ ⑥ 조판 자동 점검
-```
+서식의 모양(글자 색·크기·굵기, 줄 간격, 들여쓰기, 글머리 기호, 표 테두리·칸 색, 간격)을 AI 가 흉내 내면 AI 마다 결과가 달라집니다.
+그래서 `hwpx_new` 는 **서식 안의 실제 요소를 그대로 복제**하고 AI 는 **글과 구조만** 씁니다.
 
-- **⑥ 조판 자동 점검**: 빈 쪽, 소제목만 쪽 끝에 홀로 남음, 표가 쪽 사이에서 잘림, 마지막 쪽에 몇 줄만 남음을 PDF 에서 찾아냅니다.
-- **⑦ 자동 보정**: 쪽 나눔을 넣고 간격을 줄여 스스로 고친 뒤 다시 확인합니다(최대 6회).
-- 날짜와 요일이 안 맞으면(예: `2026. 9. 16.(화)`) 경고합니다.
+1. `hwpx-new analyze 서식.hwpx` — 서식을 분석해 **같은 모양끼리 묶은 "서식 종류"**(`H1` 소제목, `B1` 글머리, `T2` 표 …)와, 서식을 **그대로 다시 만들어 내는 뼈대 Markdown** 을 줍니다.
+2. AI 는 뼈대의 글만 새 목적에 맞게 고치고 구조를 재구성합니다(표시 `{B2}` 는 그대로 둠).
+3. `hwpx-new build` — 원본 요소를 복제해 HWPX 를 만들고, **한글로 PDF 를 만들어 쪽 배치를 점검·자동 보정**합니다.
 
-## 설치 (5분)
+실제 공문서·계획서 54종으로 "서식 → 뼈대 → 재조립 → 원본과 비교"를 돌리면 블록의 **약 87%** 가 글자 크기·색·굵기·정렬·들여쓰기·줄간격·테두리까지 원본과 같은 모양으로 재현됩니다
+(`hwpx-new selfcheck 서식.hwpx` 로 내 서식의 재현도를 직접 볼 수 있습니다. 사진·도면·병합 표 같은 복잡한 블록은 통째로 복제하므로 모양 100%).
 
-1. **Python 3.9 이상** 설치 (Windows 는 설치 화면에서 *Add python.exe to PATH* 체크)
-2. 이 저장소를 내려받아 설치 프로그램 실행
-   - Windows: `install.bat` 더블클릭
-   - macOS/Linux: `bash install.sh`
-   - 또는 한 줄: `pip install git+https://github.com/ZZombie04/hwpx_new.git`
-3. 설치 확인
+## 설치 (5분, git 불필요)
+
+1. **Python 3.9 이상** 설치 (Windows: `winget install -e --id Python.Python.3.12`, 또는 python.org — *Add python.exe to PATH* 체크)
+2. 아래 중 하나
+   - **ZIP 으로**: GitHub 의 *Code → Download ZIP* → 압축 풀기 → Windows 는 `install.bat` 더블클릭 / macOS·Linux 는 `bash install.sh`
+   - **한 줄로** (git 없이도 됨):
+     ```bash
+     pip install https://github.com/ZZombie04/hwpx_new/archive/refs/heads/main.zip
+     ```
+   - git 이 있으면: `pip install git+https://github.com/ZZombie04/hwpx_new.git`
+3. 확인 및 AI 프로그램 연결
    ```bash
-   hwpx-new doctor
+   hwpx-new doctor      # 환경 점검
+   hwpx-new setup       # 설치된 AI 프로그램(Claude·Codex·Gemini·Cursor…)에 MCP 자동 연결
    ```
-   > **한글(Hancom Office)이 설치된 Windows** 에서는 실제 한글로 PDF 를 만들어 쪽 배치가 가장 정확합니다.
-   > 한글이 없으면 Chrome/Edge 기반 내장 렌더러가 **근사 PDF** 를 만듭니다(HWPX 자체는 동일).
+   `install.bat` / `install.sh` 는 전용 가상환경에 설치하고 위 두 단계까지 자동으로 해 줍니다. `hwpx-new` 명령이 안 잡히면 `python -m hwpx_new …` 로 쓰면 됩니다.
 
-## AI 에 연결하기 (가장 쉬운 방법부터)
+> 필요한 패키지는 `lxml`, `pymupdf`, `pillow` 세 개뿐입니다(MCP 서버는 표준 라이브러리만으로 구현).
+> **한글(Hancom Office)이 설치된 Windows** 에서는 실제 한글로 PDF 를 만들어 쪽 배치가 가장 정확합니다.
+> 한글이 없으면 Chrome/Edge 기반 내장 렌더러가 **근사 PDF** 를 만듭니다(HWPX 자체는 동일).
 
-### A. 명령줄 AI (Claude Code · Codex · Gemini CLI · Grok · Antigravity …)
+## AI 에 연결하기
 
-이 폴더를 열고 그냥 말하면 됩니다. 저장소 루트의 `AGENTS.md`(= `CLAUDE.md`, `GEMINI.md`)에 **작업 절차 전체**가 들어 있어
-AI 가 스스로 읽고 분석 → 작성 → 변환 → 확인 → 보정까지 수행합니다.
+| 방법 | 대상 | 하는 일 |
+|---|---|---|
+| **A. 명령줄 AI** | Claude Code · Codex · Gemini CLI · Grok · Antigravity … | 이 폴더를 열고 말하면 됩니다. 저장소의 `AGENTS.md`(= `CLAUDE.md`, `GEMINI.md`)에 작업 절차 전체가 있어 AI 가 스스로 분석 → 작성 → 변환 → 확인 → 보정까지 합니다 |
+| **B. MCP** | Claude Desktop/Code · Cursor · Windsurf · Codex · Gemini … | `hwpx-new setup` (자동) 또는 `hwpx-new mcp-config` (출력된 설정을 붙여 넣기). `hwpx_analyze` · `hwpx_build` · `hwpx_preview` 등 도구가 생깁니다 → [docs/clients.md](docs/clients.md) |
+| **C. Claude 스킬** | Claude Code | `hwpx-new setup --skill` |
+| **D. 도구 연결 없는 채팅 AI** | 웹 ChatGPT · Gemini · Grok | `hwpx-new prompt 서식.hwpx "요청"` 출력 전체를 채팅창에 붙여넣고, AI 가 준 Markdown 을 `content.md` 로 저장해 `hwpx-new build 서식.hwpx content.md -o 결과` |
 
 ```
 서식.hwpx 를 분석해서 결과보고서로 만들어줘. 연수는 9/16, 9/22 두 번 했고 각각 11명, 13명 이수했어.
-```
-
-### B. MCP (Claude Desktop · Claude Code · Cursor · Windsurf · Codex · Gemini …)
-
-```bash
-hwpx-new mcp-config        # 내 컴퓨터에 맞는 설정을 프로그램별로 출력합니다
-```
-
-출력된 JSON 을 각 프로그램의 MCP 설정에 붙여 넣으면 `hwpx_analyze`, `hwpx_build`, `hwpx_preview` 등 도구가 생깁니다.
-Claude Code 는 한 줄이면 됩니다.
-
-```bash
-claude mcp add hwpx_new -- python -m hwpx_new.mcp_server
-```
-
-자세한 프로그램별 설정은 [docs/clients.md](docs/clients.md).
-
-### C. Claude 스킬로 설치
-
-`skill/hwpx-new` 폴더를 `~/.claude/skills/` 에 복사하면 "이 서식으로 ~ 만들어줘" 같은 요청에서 자동으로 켜집니다.
-
-### D. 도구 연결이 없는 채팅 AI (웹 ChatGPT · Gemini · Grok 등)
-
-```bash
-hwpx-new prompt 서식.hwpx "이 계획서를 결과보고서로 바꿔줘. 이수 24명"   # ← 출력 전체를 AI 채팅창에 붙여넣기
-# AI 가 준 Markdown 을 content.md 로 저장한 뒤
-hwpx-new build 서식.hwpx content.md -o 결과
 ```
 
 ## 이렇게 말하세요 (예시)
@@ -87,11 +67,11 @@ hwpx-new build 서식.hwpx content.md -o 결과
 | 계획서 → 결과보고서 | "`계획서.hwpx` 를 결과보고서로 만들어줘. 참석 24명, 만족도는 매우 좋았어" |
 | 작년 문서 → 올해 | "작년 `안내문.hwpx` 를 올해(2026년 10월 14일 수요일) 행사로 바꿔줘" |
 | 같은 양식으로 새 문서 | "이 `양식.hwpx` 로 ○○ 사업 운영 계획서 만들어줘. 자료는 아래와 같아…" |
-| 사진·도면이 많은 기존 문서를 우리 기관용으로 | "`도교육청 요강.hwpx` 와 `도 계획.hwp` 를 읽고, 우리 지역 조건(참가 대상·신청 방법·시상)을 넣어 운영 계획서와 신청서 엑셀을 만들어줘" (원본 사진·표·양식은 그대로 복제) |
+| 사진·도면이 많은 기존 문서를 우리 기관용으로 | "`도교육청 요강.hwpx` 를 읽고 우리 지역 조건(참가 대상·신청 방법·시상)을 넣어 운영 계획서를 만들어줘" (원본 사진·표·양식은 그대로 복제) |
 | 옛 `.hwp` 파일 | "`서식.hwp` 로 …" (Windows+한글이면 자동 변환) |
 
-AI 는 마지막에 **HWPX 경로, PDF 경로, (지어낸 내용이 있다면) 그 목록**을 알려 줍니다.
-사용자가 주지 않은 숫자·이름을 임의로 만들지 않는다는 규칙이 지침에 들어 있습니다.
+AI 는 마지막에 **HWPX 경로, PDF 경로, (지어낸 내용이 있다면) 그 목록**을 알려 줍니다. 사용자가 주지 않은 숫자·이름을 임의로 만들지 않는다는 규칙이 지침에 들어 있습니다.
+빌드는 **서식 원문의 문장이 그대로 남았는지**(옛 기관명·날짜), 날짜-요일 불일치, 표 칸 수 불일치도 경고합니다.
 
 ## 사진도 알아서 넣어 줍니다
 
@@ -99,111 +79,101 @@ AI 는 마지막에 **HWPX 경로, PDF 경로, (지어낸 내용이 있다면) �
 서식(계획서).hwpx 로 결과보고서 만들어줘. 사진은 사진/ 폴더에 있어. 1기는 9/16, 11명 이수.
 ```
 
-1. `hwpx-new photos 사진/` — 촬영 시각 순 목록과 **번호 붙은 한눈에 보기 이미지**를 만듭니다. AI 가 이 이미지를 보고 각 사진이 무엇인지 파악합니다.
-2. AI 가 활동 장면은 **사진 대지**(표 안의 사진 격자 + 캡션), 단체 사진은 **단독 사진**, 설문지·자료는 **표 셀 안**에 넣도록 배치를 정합니다.
-3. 사진은 자동으로 **회전 보정 · 축소 · 형식 변환(HEIC 등)** 후 HWPX 안에 들어가고, PDF 로도 확인합니다.
-
-```markdown
-:::photos columns=3 title="1기 실습 장면"
-![준비운동 실습](사진/01.jpg)
-![스피드 레더](사진/02.jpg)
-![허들 릴레이](사진/03.jpg)
-:::
-
-![연수 참여 교원 단체 사진](사진/05.jpg)
-
-| 사진 | 설명 |
-|:-:|:--|
-| ![](사진/04.jpg) | 만족도 설문 작성 모습 |
-```
+1. `hwpx-new photos 사진/` — 촬영 시각 순 목록과 **번호 붙은 한눈에 보기 이미지**. AI 가 이 이미지를 보고 각 사진이 무엇인지 파악합니다.
+2. 활동 장면은 **사진 대지**(표 안의 사진 격자 + 캡션), 단체 사진은 **단독 사진**, 설문지·자료는 **표 셀 안**에 넣습니다.
+3. 사진은 자동으로 **회전 보정 · 축소 · 형식 변환(HEIC 등)** 후 HWPX 안에 들어갑니다.
 
 ![사진이 들어간 결과 페이지](docs/img/result_photos.png)
 
-예시: [examples/sample_content_photos.md](examples/sample_content_photos.md) → [결과 PDF](examples/output/샘플_결과보고서_사진포함.pdf)
+## 한글이 "파일 접근 허용"을 물어볼 때
+
+한글은 외부 프로그램이 파일을 열 때 **"파일 접근 허용" 보안 승인 창**을 띄웁니다. `hwpx_new` 는 **자기가 띄운 한글 프로세스의 창**에서, **자기 작업 폴더 안의 임시 파일**에 대한 요청일 때만 [접근 허용](이번 한 번)을 대신 눌러 줍니다.
+[모두 허용]·[허용 안 함]은 누르지 않고, 한글 보안 설정·레지스트리는 바꾸지 않으며, 사용자가 열어 둔 한글 창은 건드리지 않습니다.
+
+- **화면보호기·잠금 상태에서는 자동 클릭이 되지 않습니다.** 이때는 50초 뒤 "승인 창이 닫히지 않았다"고 알리고(한글 프로세스는 정리) 내장 렌더러로 근사 PDF 를 만듭니다. 화면을 켜고 다시 실행하거나 한글 창에서 직접 [접근 허용]을 누르세요.
+- 원인과 상태는 `hwpx-new doctor` 가 알려 줍니다.
 
 ## 명령어 모음
 
 | 명령 | 설명 |
 |---|---|
-| `hwpx-new doctor` | PDF 변환 엔진 상태 점검 |
-| `hwpx-new analyze 서식.hwpx` | 서식 구조 분석(표지·소제목·표·박스·글머리) |
-| `hwpx-new scaffold 서식.hwpx` | 서식 뼈대 그대로의 Markdown 초안 |
+| `hwpx-new doctor` | 환경 점검(파이썬 패키지·한글·PDF 엔진·화면보호기) |
+| `hwpx-new setup [--skill] [--dry-run]` | 설치된 AI 프로그램에 MCP(+스킬) 자동 연결(설정 파일은 백업 후 수정) |
+| `hwpx-new analyze 서식.hwpx` | 서식 종류 목록 + 블록 목록 + 뼈대 Markdown |
+| `hwpx-new skeleton 서식.hwpx -o 뼈대.md` | 뼈대 Markdown 만 저장 |
+| `hwpx-new selfcheck 서식.hwpx [-v]` | 서식을 다시 조립해 원본과 모양 비교(서식 재현도 %) |
+| `hwpx-new build 서식.hwpx content.md -o 결과폴더` | **HWPX + PDF + 미리보기 PNG** (자동 점검·보정 포함) |
 | `hwpx-new photos 사진폴더` | 사진 목록 + 번호 붙은 한눈에 보기 이미지 |
 | `hwpx-new read 문서.hwpx` | HWPX 본문을 Markdown 으로 읽기 |
-| `hwpx-new build 서식.hwpx content.md -o 결과폴더` | **HWPX + PDF + 미리보기 PNG** 생성(자동 점검·보정 포함) |
 | `hwpx-new preview 결과.pdf --page 2` | PDF 한 쪽을 PNG 로 |
 | `hwpx-new convert 옛서식.hwp` | `.hwp` → `.hwpx` (Windows + 한글) |
 | `hwpx-new prompt 서식.hwpx "요청"` | 채팅 AI 용 완성 프롬프트 |
-| `hwpx-new format` | 내용 작성 문법 |
-| `hwpx-new mcp-config` | MCP 설정 출력 |
+| `hwpx-new instructions` / `format` | AI 작업 지침 / 내용 작성 문법 출력 |
+| `hwpx-new mcp-config` | MCP 설정 문구 출력 |
 
 ## 내용 작성 문법 (핵심)
 
 ```markdown
-# 문서 제목
-@subtitle 작성 부서
+:::cover                         ← 표지 글 칸(칸 수·순서 유지)
+2026 ○○ 연수 운영 계획
+○○교육지원청 ○○과
+:::
+
 ## Ⅰ. 소제목
-- 글머리 문단
+- 글머리 문단 **굵은 낱말**
   - 하위 단계
+- {B2} 다른 모양의 글머리(서식 종류 표시)
+
 :::box 강조 박스 제목
 박스 안 줄
 :::
-<!-- widths: 1.3, 3.5 -->
+
 | 항목 | 내용 |
-|:-:|:-:|
+|---|---|
 | 연수명 | 2026 ○○ 연수 |
+@like 34 | 색·크기가 섞인 문단의 모양을 빌려 글만 바꿈
+@clone 12                        ← 사진·도면·서명란 블록 그대로 복제
 <!-- pagebreak -->
-@end
 ```
 
-빈 줄·간격·번호 모양·표 테두리는 **서식에서 배워서 자동 적용**되므로 적지 않습니다.
-병합 셀이 있는 표, 기안문의 여러 칸 제목 등은 JSON 블록으로 쓸 수 있습니다 → [docs/content-format.md](docs/content-format.md)
+빈 줄·간격·번호 모양·표 테두리·글자 색은 **서식에서 배워서 자동 적용**되므로 적지 않습니다. 전체 문법: [hwpx_new/FORMAT.md](hwpx_new/FORMAT.md) (`hwpx-new format`).
 
 ## 어떻게 서식을 알아내나요
 
-HWPX 는 ZIP 안의 XML 입니다. `hwpx_new` 는 문서의 각 블록을 살펴 **역할**을 붙입니다.
-
-| 역할 | 판정 근거 |
-|---|---|
-| 표지/제목 | 앞쪽 블록 중 번호 머리말이 아닌 큰 글씨(표 포함) |
-| 부제 | 제목 아래 짧은 오른쪽·가운데 정렬 문단 |
-| 소제목 | `Ⅰ.` `1.` `가.` 로 시작하는 짧은 1열 표(바 장식) 또는 큰 굵은 문단 |
-| 표 | 머리글 배경색이 있는 격자 → 머리/본문/마지막 행, 첫/중간/끝 열별 테두리·글꼴을 학습 |
-| 박스 | 배경색 1×1 표 → 제목 줄과 본문 줄 서식 분리 |
-| 글머리/번호 문단 | ●○-, `1.` `가.` `1)` 등 → 단계별 들여쓰기·기호 학습 |
-| 빈 줄 | 블록 사이 간격 규칙(표 뒤, 소제목 뒤 …)을 학습해 자동 삽입 |
-
-이렇게 배운 서식 요소를 **복제해 글만 바꾸므로** 글꼴·색·여백이 원본과 같습니다. 자세한 내용은 [docs/how-it-works.md](docs/how-it-works.md).
+HWPX 는 ZIP 안의 XML 입니다. `hwpx_new` 는 문서의 각 블록에 **역할**(표지·소제목·글머리·번호·본문·표·박스·사진)을 붙이고,
+글자·문단·테두리의 **실제 값**(크기·색·굵기·정렬·들여쓰기·줄간격·테두리·칸 색)이 같은 블록끼리 **서식 종류**로 묶습니다.
+새 글을 쓸 때는 본문에서 가장 흔한 견본(표지 제외)을 복제하고, 글머리 단계·번호 종류·소제목 종류·표 모양은 글 내용(기호·열 수)에 맞춰 고르며,
+블록 사이 간격은 서식이 앞 역할 → 뒤 역할 사이에 둔 빈 줄을 그대로 따릅니다. 표는 열 수가 같으면 **같은 자리의 칸**(글자·정렬·테두리·칸 색)을 그대로 가져옵니다.
+자세한 내용은 [docs/how-it-works.md](docs/how-it-works.md).
 
 ## 자주 묻는 질문
 
 **PDF 가 한글에서 연 것과 조금 달라요.** 한글이 없는 환경에서는 내장 렌더러가 만든 근사 PDF 입니다. 한글이 설치된 Windows 에서는 한글 자신이 PDF 로 저장합니다.
 
-**한글 변환이 멈추거나 오래 걸려요.** 한글은 외부 프로그램이 파일을 열려 하면 **"파일 접근 허용" 보안 승인 창**을 띄웁니다(화면 뒤에 숨어 있을 수 있음). 그 창에서 [허용]을 누르면 진행됩니다. 75초 안에 응답이 없으면 자동으로 다음 엔진(LibreOffice → 내장 렌더러)으로 넘어가 PDF 는 반드시 만들어지고, 이 도구가 띄운 한글 프로세스만 정리합니다(사용자가 열어 둔 한글 문서는 건드리지 않습니다). 승인 창이 매번 뜨는 것이 불편하면 한글 자동화 보안 모듈(FilePathChecker) 등록을 직접 검토하세요 — 보안 설정이라 이 도구가 대신 바꾸지 않습니다.
+**설치가 안 돼요.** `python -m pip install https://github.com/ZZombie04/hwpx_new/archive/refs/heads/main.zip` 를 실행해 보세요(git 불필요). 오류 메시지를 AI 에게 보여 주면 됩니다. `hwpx-new` 명령을 찾을 수 없다면 `python -m hwpx_new doctor` 로 쓰세요.
+
+**AI 프로그램에 도구가 안 나타나요.** `hwpx-new setup` 후 **AI 프로그램을 완전히 종료했다가 다시 실행**해야 합니다. 그래도 안 되면 `hwpx-new mcp-config` 의 설정을 직접 붙여 넣으세요.
 
 **`.hwp` 파일은요?** 옛 형식이라 직접 읽지 않습니다. `hwpx-new convert` 또는 한글에서 *다른 이름으로 저장 → HWPX*.
-
-**서식에 원래 있던 그림(로고 등)은요?** 표지 장식처럼 표 안에 든 그림은 그대로 복제됩니다. 새 사진은 위의 `![캡션](경로)` 문법으로 넣습니다.
 
 **표에 열이 너무 많으면?** 7열 이상이면 경고합니다. 열을 줄이거나 표를 나눠 쓰세요.
 
 ## 한계
 
-- 서식의 첫 번째 구역(섹션)만 사용합니다.
-- 각주·수식·도형은 복제하지 않습니다(표지 띠 같은 표 장식은 그대로 유지).
-- 기안문처럼 특수한 구조는 `clone` 블록과 `fields` 로 칸을 채워야 할 수 있습니다.
+- 서식의 첫 번째 구역(섹션)만 사용합니다(여러 구역 문서는 `clone` 의 `section` 으로 다른 구역 블록을 복제).
+- 각주·수식은 복제하지 않습니다(표지 띠 같은 표 장식과 사진·도면 문단은 `@clone` 으로 그대로 유지).
+- 한글 자동 변환은 Windows + 한글 + 켜진 화면이 필요합니다(없으면 근사 PDF).
 
 ## 개발 / 테스트
 
 ```bash
 pip install -e .
-python tests/test_e2e.py      # 서식 분석 → 조립 → PDF → 점검 전 과정
-python tests/test_mcp.py      # MCP 서버 왕복
+python -m pytest tests            # 분석 → 조립 → PDF → 점검, MCP 프로토콜, 엔진 단위 테스트
+python tools/make_corpus.py       # (개발용) 내 PC 의 실제 서식으로 재현도 점검용 목록 만들기
+python tools/batch_roundtrip.py --md
 ```
 
-## 라이선스
-
-MIT — [LICENSE](LICENSE)
+`hwpx_new/data/AGENTS.md` 가 AI 지침의 단일 원본이며 `python tools/sync_docs.py` 가 `AGENTS.md`·`CLAUDE.md`·`GEMINI.md`·Copilot·Cursor·스킬 파일을 만듭니다.
 
 ---
 
