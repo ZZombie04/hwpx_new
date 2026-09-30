@@ -168,3 +168,20 @@ def test_hancom_powershell_scripts_parse():
                'if ($e.Count) { $e | ForEach-Object { $_.Message }; exit 1 }' % f)
         r = subprocess.run(['powershell', '-NoProfile', '-Command', cmd], capture_output=True, text=True, errors='replace')
         assert r.returncode == 0, (name, r.stdout, r.stderr)
+
+
+def test_cli_help_for_every_command():
+    """모든 하위 명령의 도움말이 깨지지 않아야 한다(% 같은 글자로 argparse 가 죽는 사고 방지)."""
+    from hwpx_new.cli import build_parser
+    ap = build_parser()
+    ap.format_help()
+    sub = next(a for a in ap._actions if a.__class__.__name__ == '_SubParsersAction')
+    for name, p in sub.choices.items():
+        assert p.format_help(), name
+
+
+def test_cli_entrypoints_run_as_subprocess():
+    for args in (['--help'], ['doctor'], ['format']):
+        r = subprocess.run([sys.executable, '-m', 'hwpx_new'] + args, cwd=ROOT, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace', env={**os.environ, 'PYTHONUTF8': '1'})
+        assert r.returncode in (0, 1) and 'Traceback' not in r.stderr, (args, r.stderr[-400:])

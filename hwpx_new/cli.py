@@ -60,7 +60,7 @@ def build_parser():
         p.add_argument('template')
         p.add_argument('-o', '--out')
 
-    p = sub.add_parser('selfcheck', help='서식을 다시 조립해 원본과 모양이 얼마나 같은지 점검(서식 재현도 %)')
+    p = sub.add_parser('selfcheck', help='서식을 다시 조립해 원본과 모양이 얼마나 같은지 점검(서식 재현도 %%)')
     p.add_argument('template')
     p.add_argument('-v', '--verbose', action='store_true')
     p.add_argument('--pdf', action='store_true', help='원본·재조립본 PDF 도 만들어 저장')
@@ -83,7 +83,7 @@ def build_parser():
 
     p = sub.add_parser('prompt', help='채팅형 AI(웹 ChatGPT 등)에 붙여 넣을 완성 프롬프트 출력')
     p.add_argument('template')
-    p.add_argument('request', nargs='?', default='', help='예: 이 계획서를 결과보고서로 바꿔줘. 이수 24명...')
+    p.add_argument('request', nargs='*', default=[], help='예: 이 계획서를 결과보고서로 바꿔줘. 이수 24명... (따옴표 없이 여러 단어도 가능)')
 
     p = sub.add_parser('setup', help='설치된 AI 프로그램(Claude·Codex·Gemini·Cursor…)에 MCP 자동 연결')
     p.add_argument('--yes', '-y', action='store_true', help='묻지 않고 모두 연결')
@@ -219,7 +219,7 @@ def _run(a, ap):
         from .analyze import analyze, blueprint_markdown, scaffold_markdown
         fmt = open(os.path.join(HERE, 'FORMAT.md'), encoding='utf-8').read()
         bp = analyze(a.template)
-        print(PROMPT_TMPL.format(request=a.request or '(여기에 원하는 작업을 적으세요)',
+        print(PROMPT_TMPL.format(request=' '.join(a.request) or '(여기에 원하는 작업을 적으세요)',
                                  analysis=blueprint_markdown(bp), scaffold=scaffold_markdown(bp), fmt=fmt))
         return 0
     if a.cmd == 'setup':

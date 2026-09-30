@@ -69,7 +69,8 @@ def lint_content(specs):
                     warns.append(f'요일 불일치: {m.group(0)} → 실제 {y}. {mo}. {d}.은 {real}요일')
         if s.get('type') == 'table':
             hdr = s.get('header') or []
-            ncol = len(hdr[0]) if hdr and isinstance(hdr[0], list) else len(hdr)
+            hrow0 = hdr[0] if hdr and isinstance(hdr[0], list) else hdr
+            ncol = sum(int(c.get('colspan', 1)) if isinstance(c, dict) else 1 for c in hrow0)
             if ncol >= 8:
                 warns.append(f'표(블록 {i + 1})의 열이 {ncol}개로 많아 글자가 좁게 나올 수 있습니다.')
             carry = [0] * max(ncol, 1)   # 위 행의 rowspan 이 차지한 칸 수
