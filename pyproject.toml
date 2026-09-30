@@ -28,4 +28,4 @@ Homepage = "https://github.com/ZZombie04/hwpx_new"
 packages = ["hwpx_new"]
 
 [tool.setuptools.package-data]
-hwpx_new = ["FORMAT.md", "data/*.md"]
+hwpx_new = ["FORMAT.md", "data/*.md", "data/*.hwpx"]

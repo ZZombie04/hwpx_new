@@ -47,7 +47,8 @@ def build_parser():
                                  description='한글(HWPX) 서식을 분석해 같은 서식의 새 문서(HWPX+PDF)를 만듭니다.')
     sub = ap.add_subparsers(dest='cmd')
 
-    sub.add_parser('doctor', help='환경 점검(한글·PDF 엔진·자동 승인 등)')
+    p = sub.add_parser('doctor', help='환경 점검(한글·PDF 엔진·자동 승인 등)')
+    p.add_argument('--hancom', action='store_true', help='한글로 실제 PDF 변환을 한 번 해 보고 승인 창 자동 처리까지 점검')
     sub.add_parser('format', help='내용 작성 형식 안내 출력')
     sub.add_parser('instructions', help='AI 작업 지침(AGENTS.md) 출력 — 채팅형 AI 에 붙여 넣을 때')
 
@@ -163,9 +164,38 @@ def _doctor():
     return 0 if ok else 1
 
 
+def _doctor_hancom():
+    """한글로 내장 예시 서식을 PDF 로 바꿔 보며 승인 창이 자동 처리되는지 점검."""
+    import tempfile
+    import time
+    from . import hancom
+    if not hancom.installed():
+        print('한글이 설치돼 있지 않아 점검할 수 없습니다.')
+        return 1
+    src = os.path.join(HERE, 'data', 'sample_template.hwpx')
+    out = os.path.join(tempfile.mkdtemp(prefix='hwpx_new_hc_'), 'test.pdf')
+    print(chr(10) + '한글 변환 점검(예시 서식 → PDF). 승인 창이 뜨면 자동으로 누릅니다…')
+    if _screensaver_active():
+        print('  ※ 화면보호기/잠금 화면이 켜져 있는 것 같습니다. 이 상태에서는 자동 클릭이 되지 않습니다. 화면을 켠 뒤 다시 실행하세요.')
+    t = time.time()
+    ok, msg, info = hancom.export_pdf(src, out, timeout=120)
+    took = round(time.time() - t, 1)
+    if ok:
+        how = info.get('dialogs', '')
+        print(f'성공: {took}초, {info.get("pages")}쪽. ' + ('승인 창을 자동으로 처리했습니다.' if ' CLICK' in how else '승인 창 없이 끝났습니다.'))
+        return 0
+    print(f'실패({took}초): {msg}')
+    if info.get('timeline'):
+        print('  진행: ' + info['timeline'])
+    return 1
+
+
 def _run(a, ap):
     if a.cmd == 'doctor':
-        return _doctor()
+        rc = _doctor()
+        if a.hancom:
+            rc = _doctor_hancom() or rc
+        return rc
     if a.cmd == 'format':
         print(open(os.path.join(HERE, 'FORMAT.md'), encoding='utf-8').read())
         return 0
