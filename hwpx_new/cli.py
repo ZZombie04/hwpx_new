@@ -92,6 +92,11 @@ def build_parser():
     p.add_argument('--home', help=argparse.SUPPRESS)
     p.add_argument('--skill', action='store_true', help='Claude Code 스킬(SKILL.md)도 설치')
 
+    p = sub.add_parser('hancom-module', help='(선택) 한글 공식 자동화 보안 모듈 등록 — "파일 접근 허용" 창을 아예 없앰(보안 설정 변경)')
+    p.add_argument('action', choices=['status', 'register', 'remove'])
+    p.add_argument('--dll', help='한글 자동화 SDK 의 FilePathCheckerModule DLL 경로(register 때)')
+    p.add_argument('--yes', '-y', action='store_true', help='확인 질문 없이 진행')
+
     sub.add_parser('mcp-config', help='MCP 설정 문구를 AI 프로그램별로 출력(직접 붙여 넣을 때)')
 
     p = sub.add_parser('photos', help='사진 폴더 살펴보기: 목록(촬영일시·크기) + 번호 붙은 한눈에 보기 이미지')
@@ -235,6 +240,29 @@ def _run(a, ap):
             print('\n→ AI 프로그램을 완전히 종료했다가 다시 실행하면 hwpx_new 도구가 나타납니다.')
         print('→ 채팅형 AI(웹 ChatGPT·Gemini 등)는 `hwpx-new prompt 서식.hwpx "요청"` 으로 만든 글을 붙여 넣으세요.')
         return 0
+    if a.cmd == 'hancom-module':
+        from . import hancom_module as hm
+        if a.action == 'status':
+            mods = hm.status()
+            print('등록된 한글 자동화 보안 모듈: ' + (', '.join(f'{k} → {v}' for k, v in mods.items()) if mods else '없음'))
+            print('※ 등록하면 한글이 "파일 접근 허용" 창을 띄우지 않습니다(이 PC 의 한글 자동화 전체에 적용).')
+            return 0
+        if a.action == 'remove':
+            print('해제했습니다.' if hm.remove() else '등록된 모듈이 없습니다.')
+            return 0
+        if not a.dll:
+            print('--dll 로 FilePathCheckerModule DLL 경로를 주세요. 이 도구는 DLL 을 내려받거나 만들지 않습니다(한글 개발자 자료의 자동화 SDK 에 들어 있음).')
+            return 1
+        print('이 작업은 이 PC 의 한글 보안 설정을 바꿉니다: 등록한 DLL 이 한글 자동화의 파일 접근을 대신 승인합니다(현재 사용자 레지스트리만, `hancom-module remove` 로 해제).')
+        if not a.yes:
+            if input('DLL 의 출처를 신뢰하고 계속할까요? [y/N] ').strip().lower() not in ('y', 'yes'):
+                print('취소했습니다.')
+                return 1
+        path = hm.register(a.dll)
+        ok, msg = hm.verify()
+        print(f'등록: {path}')
+        print('확인: ' + ('한글이 모듈을 받아들였습니다(이제 승인 창이 뜨지 않습니다).' if ok else f'한글이 모듈을 받아들이지 않았습니다({msg}). DLL 이 맞는지 확인하거나 `hancom-module remove` 로 해제하세요.'))
+        return 0 if ok else 1
     if a.cmd == 'mcp-config':
         py = sys.executable
         cfg = {'mcpServers': {'hwpx_new': {'command': py, 'args': ['-m', 'hwpx_new.mcp_server']}}}

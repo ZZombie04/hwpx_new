@@ -92,6 +92,8 @@ AI 는 마지막에 **HWPX 경로, PDF 경로, (지어낸 내용이 있다면) �
 
 - **화면보호기·잠금 상태에서는 자동 클릭이 되지 않습니다.** 이때는 50초 뒤 "승인 창이 닫히지 않았다"고 알리고(한글 프로세스는 정리) 내장 렌더러로 근사 PDF 를 만듭니다. 화면을 켜고 다시 실행하거나 한글 창에서 직접 [접근 허용]을 누르세요.
 - 원인과 상태는 `hwpx-new doctor` 가 알려 줍니다.
+- **승인 창을 아예 없애려면(선택, 보안 설정 변경)**: 한글 개발자 자료(자동화 SDK)의 `FilePathCheckerModule` DLL 을 구해 `hwpx-new hancom-module register --dll 경로` 로 등록합니다
+  (현재 사용자 레지스트리만, `hancom-module remove` 로 해제, `hancom-module status` 로 확인). 이 도구는 DLL 을 내려받거나 만들지 않고, 사용자가 직접 실행할 때만 동작합니다.
 
 ## 명령어 모음
 
@@ -109,6 +111,7 @@ AI 는 마지막에 **HWPX 경로, PDF 경로, (지어낸 내용이 있다면) �
 | `hwpx-new convert 옛서식.hwp` | `.hwp` → `.hwpx` (Windows + 한글) |
 | `hwpx-new prompt 서식.hwpx "요청"` | 채팅 AI 용 완성 프롬프트 |
 | `hwpx-new instructions` / `format` | AI 작업 지침 / 내용 작성 문법 출력 |
+| `hwpx-new hancom-module status/register/remove` | (선택) 한글 공식 보안 모듈 등록으로 승인 창 없애기 |
 | `hwpx-new mcp-config` | MCP 설정 문구 출력 |
 
 ## 내용 작성 문법 (핵심)
