@@ -15,7 +15,8 @@ $before = @(Get-Process -Name Hwp -ErrorAction SilentlyContinue | ForEach-Object
 try {
   $h = New-Object -ComObject HWPFrame.HwpObject
   try { $h.RegisterModule('FilePathCheckDLL','FilePathCheckerModule') | Out-Null } catch {}
-  $h.Open($args[0], 'HWPX', '') | Out-Null
+  $ok = $h.Open($args[0], 'HWPX', '')
+  if (-not $ok) { throw 'Open failed' }
   $h.SaveAs($args[1], 'PDF', '') | Out-Null
   try { $h.Clear(1) | Out-Null } catch {}
   try { $h.Quit() | Out-Null } catch {}
@@ -45,23 +46,34 @@ HANCOM_HINT = ('한글이 응답하지 않았습니다. 한글 화면에 "파일
                '그 창에서 [허용]을 누르면(또는 README 의 "한글 자동화 승인" 참고) 다음부터 자동 변환됩니다.')
 
 
+def _work_dir():
+    """한글의 '파일 접근 허용' 승인은 폴더 단위로 기억되는 경우가 많아, 변환용 파일은 항상 같은 폴더를 쓴다."""
+    d = os.environ.get('HWPX_NEW_WORK') or os.path.join(os.path.expanduser('~'), '.hwpx_new', 'work')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def _hancom(hwpx, pdf, timeout=75):
     if sys.platform != 'win32':
         return False, '한글은 Windows 에서만 자동 변환할 수 있습니다.'
     ps = shutil.which('powershell') or shutil.which('pwsh')
     if not ps:
         return False, 'PowerShell 을 찾지 못했습니다.'
-    tmp = tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8-sig')
+    wd = _work_dir()
+    w_in = os.path.join(wd, 'convert_in.hwpx')
+    w_out = os.path.join(wd, 'convert_out.pdf')
+    shutil.copyfile(hwpx, w_in)
+    if os.path.exists(w_out):
+        os.remove(w_out)
+    tmp = tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8-sig', dir=wd)
     tmp.write(PS_SCRIPT)
     tmp.close()
     before = _hwp_pids()
     try:
-        if os.path.exists(pdf):
-            os.remove(pdf)
-        r = subprocess.run([ps, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmp.name,
-                            os.path.abspath(hwpx), os.path.abspath(pdf)],
+        r = subprocess.run([ps, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmp.name, w_in, w_out],
                            capture_output=True, text=True, errors='replace', timeout=timeout)
-        if os.path.exists(pdf) and os.path.getsize(pdf) > 1000:
+        if os.path.exists(w_out) and os.path.getsize(w_out) > 1000:
+            shutil.copyfile(w_out, pdf)
             return True, ''
         return False, (r.stderr or r.stdout or '한글 변환 실패').strip()[:300]
     except subprocess.TimeoutExpired:
@@ -70,7 +82,11 @@ def _hancom(hwpx, pdf, timeout=75):
         return False, str(e)
     finally:
         _kill_new_hwp(before)
-        os.unlink(tmp.name)
+        for f in (tmp.name, w_in, w_out):
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
 
 
 def _libreoffice(hwpx, pdf, timeout=150):
@@ -144,7 +160,8 @@ $before = @(Get-Process -Name Hwp -ErrorAction SilentlyContinue | ForEach-Object
 try {
   $h = New-Object -ComObject HWPFrame.HwpObject
   try { $h.RegisterModule('FilePathCheckDLL','FilePathCheckerModule') | Out-Null } catch {}
-  $h.Open($args[0], 'HWP', '') | Out-Null
+  $ok = $h.Open($args[0], 'HWP', '')
+  if (-not $ok) { throw 'Open failed' }
   $h.SaveAs($args[1], 'HWPX', '') | Out-Null
   try { $h.Clear(1) | Out-Null } catch {}
   try { $h.Quit() | Out-Null } catch {}

@@ -51,9 +51,10 @@ def validate(path: str):
         rows, cols = int(tbl.get('rowCnt')), int(tbl.get('colCnt'))
         occ = {}
         trs = tbl.findall(HP + 'tr')
+        own_cells = [tc for tr in trs for tc in tr.findall(HP + 'tc')]
         if len(trs) != rows:
             errs.append(f'표 rowCnt({rows}) 와 tr 개수({len(trs)}) 불일치')
-        for tc in tbl.iter(HP + 'tc'):
+        for tc in own_cells:
             a, s = tc.find(HP + 'cellAddr'), tc.find(HP + 'cellSpan')
             r0, c0 = int(a.get('rowAddr')), int(a.get('colAddr'))
             rs, cs = int(s.get('rowSpan')), int(s.get('colSpan'))

@@ -110,6 +110,61 @@ def test_missing_photo_is_clear_error():
         raise AssertionError('missing photo should raise')
 
 
+def _two_section_template():
+    """샘플 서식을 2개 구역으로 만든 임시 서식(다구역 서식의 복제·구역 수 보정 시험용)."""
+    from hwpx_new.package import Package
+    from lxml import etree
+    pk = Package(TPL)
+    pk.files['Contents/section1.xml'] = pk.files['Contents/section0.xml']
+    hpf = etree.fromstring(pk.files['Contents/content.hpf'])
+    ns = 'http://www.idpf.org/2007/opf/'
+    man = hpf.find('{%s}manifest' % ns)
+    item = etree.SubElement(man, '{%s}item' % ns)
+    item.set('id', 'section1')
+    item.set('href', 'Contents/section1.xml')
+    item.set('media-type', 'application/xml')
+    spine = hpf.find('{%s}spine' % ns)
+    ref = etree.SubElement(spine, '{%s}itemref' % ns)
+    ref.set('idref', 'section1')
+    ref.set('linear', 'yes')
+    pk.files['Contents/content.hpf'] = etree.tostring(hpf, xml_declaration=True, encoding='UTF-8', standalone=True)
+    hdr = pk.files['Contents/header.xml'].decode('utf-8').replace('secCnt="1"', 'secCnt="2"')
+    pk.files['Contents/header.xml'] = hdr.encode('utf-8')
+    path = os.path.join(tempfile.mkdtemp(), 'two.hwpx')
+    pk.save(path)
+    return path
+
+
+def test_clone_replace_and_other_section():
+    from hwpx_new.builder import Builder
+    from hwpx_new.pipeline import build_once
+    from hwpx_new.validate import validate
+    tpl = _two_section_template()
+    out = os.path.join(tempfile.mkdtemp(), 'c.hwpx')
+    specs = [{'type': 'clone', 'from': 0, 'to': 1, 'replace': {'○○교육지원청': '평택교육지원청'}},
+             {'type': 'clone', 'section': 1, 'from': 3, 'replace': {'연수 개요': '대회 개요'}},
+             {'type': 'like', 'from': 17, 'texts': ['  ● 새 글머리 문장']}]
+    b, probes = build_once(tpl, specs, set(), 0, out, 't')
+    assert not validate(out), validate(out)
+    with zipfile.ZipFile(out) as z:
+        hdr = z.read('Contents/header.xml').decode('utf-8')
+        sec = z.read('Contents/section0.xml').decode('utf-8')
+        assert 'secCnt="1"' in hdr and 'Contents/section1.xml' not in z.namelist()
+    assert '평택교육지원청' in sec and '대회 개요' in sec and '새 글머리 문장' in sec
+
+
+def test_table_proto_and_floating():
+    from hwpx_new.builder import Builder
+    b = Builder(TPL)
+    b._compact = 0
+    rows = [[f'항목{i}', '긴 내용 ' * 30] for i in range(40)]
+    el = b.make_table({'header': ['항목', '내용'], 'rows': rows, 'widths': [1, 4]})
+    from hwpx_new.package import HP
+    assert el.find('.//' + HP + 'pos').get('treatAsChar') == '0'      # 쪽에 가까운 큰 표는 떠 있는 표
+    el2 = b.make_table({'header': ['항목', '내용'], 'rows': rows[:2], 'widths': [1, 4], 'proto': 10})
+    assert el2.find('.//' + HP + 'tbl') is not None and el2.find('.//' + HP + 'tbl').get('rowCnt') == '3'   # proto 지정 표
+
+
 if __name__ == '__main__':
     for name, fn in list(globals().items()):
         if name.startswith('test_'):

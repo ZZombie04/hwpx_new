@@ -142,7 +142,7 @@ class Renderer:
         w = int(tbl.find(HP + 'sz').get('width')) / 100
         cols = int(tbl.get('colCnt'))
         widths = [0.0] * cols
-        for tc in tbl.iter(HP + 'tc'):
+        for tc in [c for tr in tbl.findall(HP + 'tr') for c in tr.findall(HP + 'tc')]:
             a, s, z = tc.find(HP + 'cellAddr'), tc.find(HP + 'cellSpan'), tc.find(HP + 'cellSz')
             if int(s.get('colSpan')) == 1:
                 widths[int(a.get('colAddr'))] = int(z.get('width')) / 100

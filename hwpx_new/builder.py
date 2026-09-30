@@ -122,10 +122,8 @@ class Kit:
         self._learn_spacing()
         self._learn_tables()
         self.text_width = min(bp.page['text_width'] - 400, 47900) if bp.page['text_width'] > 0 else 47000
-        tb = self.by_role.get('table')
-        if tb:
-            tw = int(tb[0].info['tbl'].find(HP + 'sz').get('width'))
-            self.text_width = tw
+        if self.table_default is not None:
+            self.text_width = int(self.table_default.info['tbl'].find(HP + 'sz').get('width'))
 
     # ---- 글머리 단계
     def _learn_bullets(self):
@@ -185,6 +183,8 @@ class Kit:
             if not self.bullet_levels:
                 return None
             return self.bullet_levels[min(level, len(self.bullet_levels)) - 1]
+        if role == 'table' and getattr(self, 'table_default', None) is not None:
+            return self.table_default
         lst = self.by_role.get(role)
         return lst[0] if lst else None
 
@@ -226,63 +226,112 @@ class Kit:
         return el
 
     # ---- 표 서식 학습
-    def _learn_tables(self):
-        self.tables = self.by_role.get('table', [])
-        self.cls = {}          # (row_kind, col_kind) -> cell record  (표 프로토 우선)
-        self.body = {}         # 'c'/'l' -> (para_pr, char, style)
-        self.base_h = {'head': [], 'body': []}
-        for tb in self.tables:
-            cells, cols, rows = tb.info['cells'], tb.info['cols'], tb.info['rows']
-            hdr_rows = 0
-            for r in range(rows):
-                rc = [c for c in cells if c['r'] == r]
-                if rc and all(c['filled'] for c in rc):
-                    hdr_rows += 1
-                else:
-                    break
-            hdr_rows = hdr_rows or 1
-            tb.info['hdr_rows'] = hdr_rows
-            for c in cells:
-                if c['rs'] > 1 and c['r'] + c['rs'] > rows - 0 and False:
-                    continue
-                rk = 'head' if c['r'] < hdr_rows else ('lastbody' if c['r'] + c['rs'] >= rows else 'body')
-                if c['cs'] >= cols:
-                    ck = 'full'
-                elif c['c'] == 0:
-                    ck = 'first'
-                elif c['c'] + c['cs'] >= cols:
-                    ck = 'last'
-                else:
-                    ck = 'mid'
-                if c['rs'] > 1 or c['cs'] > 1:
-                    if rk == 'head':
-                        pass
-                    else:
-                        continue
-                self.cls.setdefault((rk, ck), c)
-                if rk != 'head':
-                    al = self.head.para.get(c['para_pr'], {}).get('align', 'JUSTIFY')
-                    key = 'c' if al == 'CENTER' else 'l'
-                    self.body.setdefault(key, (c['para_pr'], c['char'], c['style']))
-                    self.base_h['body'].append(c['h'])
-                else:
-                    self.base_h['head'].append(c['h'])
-        self.head_h = min(self.base_h['head']) if self.base_h['head'] else 2148
-        self.body_h = min(self.base_h['body']) if self.base_h['body'] else 2000
+    def _learn_one(self, tb):
+        cells, cols, rows = tb.info['cells'], tb.info['cols'], tb.info['rows']
+        hdr_rows = 0
+        for r in range(rows):
+            rc = [c for c in cells if c['r'] == r]
+            if rc and all(c['filled'] for c in rc):
+                hdr_rows += 1
+            else:
+                break
+        hdr_rows = hdr_rows or 1
+        tb.info['hdr_rows'] = hdr_rows
+        cls, body, heads, bodies = {}, {}, [], []
+        for c in cells:
+            rk = 'head' if c['r'] < hdr_rows else ('lastbody' if c['r'] + c['rs'] >= rows else 'body')
+            if c['cs'] >= cols:
+                ck = 'full'
+            elif c['c'] == 0:
+                ck = 'first'
+            elif c['c'] + c['cs'] >= cols:
+                ck = 'last'
+            else:
+                ck = 'mid'
+            if (c['rs'] > 1 or c['cs'] > 1) and rk != 'head':
+                continue
+            cls.setdefault((rk, ck), c)
+            if rk != 'head':
+                al = self.head.para.get(c['para_pr'], {}).get('align', 'JUSTIFY')
+                body.setdefault('c' if al == 'CENTER' else 'l', (c['para_pr'], c['char'], c['style']))
+                bodies.append(c['h'])
+            else:
+                heads.append(c['h'])
+        return {'cls': cls, 'body': body, 'head_h': min(heads) if heads else None,
+                'body_h': min(bodies) if bodies else None, 'width': int(tb.info['tbl'].find(HP + 'sz').get('width'))}
 
-    def cell_rec(self, rk, ck):
+    @staticmethod
+    def _pick(cls, rk, ck):
         order_col = {'first': ['first', 'mid', 'last', 'full'], 'mid': ['mid', 'last', 'first', 'full'],
                      'last': ['last', 'mid', 'first', 'full'], 'full': ['full', 'first', 'mid', 'last']}[ck]
         order_row = {'head': ['head'], 'body': ['body', 'lastbody'], 'lastbody': ['lastbody', 'body']}[rk]
         for r in order_row:
             for c in order_col:
-                if (r, c) in self.cls:
-                    return self.cls[(r, c)]
+                if (r, c) in cls:
+                    return cls[(r, c)]
         for c in order_col:
             for r in ('head', 'body', 'lastbody'):
-                if (r, c) in self.cls:
-                    return self.cls[(r, c)]
+                if (r, c) in cls:
+                    return cls[(r, c)]
         return None
+
+    def _learn_tables(self):
+        self.tables = self.by_role.get('table', [])
+        self.cls = {}          # 전역(장식 표 제외) 셀 서식
+        self.body = {}
+        self.table_kits = {}
+        heads, bodies = [], []
+        self.table_default = None
+        for tb in self.tables:
+            one = self._learn_one(tb)
+            self.table_kits[tb.idx] = one
+            has_pic = any(True for _ in tb.el.iter(HP + 'pic'))
+            eligible = tb.info['cols'] <= 12 and tb.info.get('fills', 0) > 0 and not has_pic
+            if not eligible:
+                continue
+            if self.table_default is None:
+                self.table_default = tb
+            for k, v in one['cls'].items():
+                self.cls.setdefault(k, v)
+            for k, v in one['body'].items():
+                self.body.setdefault(k, v)
+            if one['head_h']:
+                heads.append(one['head_h'])
+            if one['body_h']:
+                bodies.append(one['body_h'])
+        if self.table_default is None and self.tables:
+            self.table_default = self.tables[0]
+            for k, v in self.table_kits[self.tables[0].idx]['cls'].items():
+                self.cls.setdefault(k, v)
+            for k, v in self.table_kits[self.tables[0].idx]['body'].items():
+                self.body.setdefault(k, v)
+        self.head_h = min(heads) if heads else 2148
+        self.body_h = min(bodies) if bodies else 2000
+
+    def cell_rec(self, rk, ck):
+        return self._pick(self.cls, rk, ck)
+
+    def table_kit(self, idx=None):
+        return TableKit(self, self.table_kits.get(int(idx)) if idx is not None else None)
+
+
+class TableKit:
+    """표 하나를 만들 때 쓰는 서식 묶음: 지정한 표(proto)의 서식을 우선, 없으면 전역 서식."""
+
+    def __init__(self, kit, own):
+        self.kit, self.own = kit, own
+        self.body = dict(kit.body)
+        if own:
+            self.body.update(own['body'])
+        self.head_h = (own or {}).get('head_h') or kit.head_h
+        self.body_h = (own or {}).get('body_h') or kit.body_h
+
+    def cell_rec(self, rk, ck):
+        if self.own:
+            r = self.kit._pick(self.own['cls'], rk, ck)
+            if r is not None:
+                return r
+        return self.kit.cell_rec(rk, ck)
 
 
 # ---------------------------------------------------------------- 빌더
@@ -565,8 +614,17 @@ class Builder:
         return self.make_table({'header': header, 'rows': rows, 'widths': [1] * cols, 'align': ['c'] * cols})
 
     def make_table(self, spec):
-        kit = self.kit
-        pr = kit.proto('table')
+        kit0 = self.kit
+        if spec.get('proto') is not None:
+            pr = self.bp.blocks[int(spec['proto'])]
+            if pr.role != 'table':
+                raise BuildError(f'table.proto: {spec["proto"]}번 블록은 표가 아닙니다.')
+            kit = kit0.table_kit(pr.idx)
+            text_w = kit0.table_kits[pr.idx]['width']
+        else:
+            pr = kit0.proto('table')
+            kit = kit0.table_kit(None)
+            text_w = kit0.text_width
         if pr is None:
             return None
         header = spec.get('header') or []
@@ -600,7 +658,7 @@ class Builder:
         if len(widths) != ncols:
             widths = [1] * ncols
             self.warnings.append(f'표의 widths 개수가 열 수({ncols})와 달라 균등 분할했습니다.')
-        total = kit.text_width
+        total = spec.get('width') or text_w
         ws = [int(total * w / sum(widths)) for w in widths]
         ws[-1] += total - sum(ws)
         ws = self._fit_widths(ws, placed, len(hnorm))
@@ -707,6 +765,13 @@ class Builder:
             trs[r].append(tc)
         tbl.find(HP + 'sz').set('width', str(total))
         tbl.find(HP + 'sz').set('height', str(sum(row_h)))
+        page = self.bp.page
+        usable = page['height'] - page['top'] - page['bottom']
+        floating = spec.get('floating')
+        if floating is None:
+            floating = sum(row_h) > 0.4 * usable      # 한 쪽에 가까운 큰 표: 글자처럼 취급하면 쪽 끝에서 잘릴 수 있음
+        if floating:
+            tbl.find(HP + 'pos').set('treatAsChar', '0')
         self._renew_tables(p)
         return p
 
@@ -724,6 +789,7 @@ class Builder:
                 size = 1200 if not is_head else 1200
                 need[c] = max(need[c], unit * size * 0.98 + 1000)
         ws = list(ws)
+        orig_total = sum(ws)
         for _ in range(3):
             deficit = [(i, need[i] - ws[i]) for i in range(n) if need[i] > ws[i]]
             if not deficit:
@@ -739,7 +805,7 @@ class Builder:
                     ws[i] -= int(take * (d - 800) / spare)
             for i, d in deficit:
                 ws[i] += int(take * d / total_def)
-        ws[-1] += sum(ws) and (self.kit.text_width - sum(ws))
+        ws[-1] += orig_total - sum(ws)
         return ws
 
     def _renew_tables(self, el):
@@ -748,20 +814,91 @@ class Builder:
             t.set('id', str(self._tbl_id))
 
     # ---- clone(임의 블록 복제) ----------------------------------------
-    def make_clone(self, spec):
-        i = int(spec['from'])
-        if not 0 <= i < len(self.bp.blocks):
-            raise BuildError(f'clone: 존재하지 않는 블록 번호 {i}')
-        el = self._clone(self.bp.blocks[i])
-        texts = spec.get('texts') or []
-        k = 0
+    def _other_blocks(self, section):
+        """0번이 아닌 구역의 최상위 문단 목록(Block 처럼 .el 만 사용)."""
+        cache = getattr(self, '_sec_cache', None)
+        if cache is None:
+            cache = self._sec_cache = {}
+        if section not in cache:
+            names = self.pkg.section_names()
+            if section >= len(names):
+                raise BuildError(f'clone: 구역 {section} 이(가) 없습니다(구역 수 {len(names)}).')
+            cache[section] = list(self.pkg.section_root(section).findall(HP + 'p'))
+        return cache[section]
+
+    @staticmethod
+    def _strip_section_defs(el):
+        """복제한 문단 안의 구역 정의(secPr)와 단 나누기 정의를 제거(문서 안에 구역 정의가 둘 되지 않도록)."""
+        for sp in list(el.iter(HP + 'secPr')):
+            sp.getparent().remove(sp)
+        for ctrl in list(el.iter(HP + 'ctrl')):
+            if ctrl.find(HP + 'colPr') is not None:
+                ctrl.getparent().remove(ctrl)
+
+    def _replace_text(self, el, mapping):
+        """복제한 요소 안의 모든 문단에서 문구 치환. 한 글자 덩어리 안이면 서식을 보존한다."""
         for p in el.iter(HP + 'p'):
-            for t in own_ts(p):
-                if ''.join(t.itertext()).strip():
-                    _set_t(t, texts[k] if k < len(texts) else '')
-                    k += 1
-        self._renew_tables(el)
-        return el
+            ts = own_ts(p)
+            if not ts:
+                continue
+            for old, new in mapping.items():
+                done = False
+                for t in ts:
+                    s = ''.join(t.itertext())
+                    if old in s:
+                        _set_t(t, s.replace(old, new))
+                        done = True
+                if done:
+                    continue
+                full = ''.join(''.join(t.itertext()) for t in ts)
+                if old in full:
+                    set_text(p, full.replace(old, new))
+                    ts = own_ts(p)
+
+    def make_clone(self, spec):
+        """서식의 블록(들)을 그대로 복제. texts(순서대로 교체) / text(문단 전체 교체) / replace(문구 치환) 지원.
+        from..to 로 구간 복제, section 으로 다른 구역의 블록 복제."""
+        sec = int(spec.get('section', 0))
+        i = int(spec['from'])
+        j = int(spec.get('to', i))
+        if sec == 0:
+            blocks = [b.el for b in self.bp.blocks]
+        else:
+            blocks = self._other_blocks(sec)
+        if not (0 <= i <= j < len(blocks)):
+            raise BuildError(f'clone: 블록 번호 범위가 잘못됨 {i}~{j} (총 {len(blocks)}개)')
+        sec_block = next((b for b in self.bp.blocks if b.info.get('has_sec')), None)
+        out = []
+        for k in range(i, j + 1):
+            el = copy.deepcopy(blocks[k])
+            strip_ls(el)
+            keep_sec = sec == 0 and sec_block is not None and k == sec_block.idx and spec.get('keep_section', True)
+            if not keep_sec:
+                self._strip_section_defs(el)
+            out.append(el)
+        texts = spec.get('texts')
+        if texts is not None:
+            idx = 0
+            for el in out:
+                for p in el.iter(HP + 'p'):
+                    for t in own_ts(p):
+                        if ''.join(t.itertext()).strip():
+                            _set_t(t, texts[idx] if idx < len(texts) else '')
+                            idx += 1
+        if spec.get('text') is not None and len(out) == 1:
+            el = out[0]
+            if el.find('.//' + HP + 'tbl') is None:
+                set_text(el, spec['text'])
+            else:
+                targets = [p for p in el.iter(HP + 'p') if p is not el and ptext(p).strip()]
+                if targets:
+                    set_text(targets[0], spec['text'])
+        if spec.get('replace'):
+            for el in out:
+                self._replace_text(el, spec['replace'])
+        for el in out:
+            self._renew_tables(el)
+        return out
 
     # ---- 전체 조립 ------------------------------------------------------
     def build(self, specs, compact=0):
@@ -775,7 +912,10 @@ class Builder:
         title_proto = kit.proto('title')
         first_is_title = bool(title_spec and title_proto is not None and sec_block is not None
                               and title_proto.idx == sec_block.idx)
-        if sec_block is not None and not first_is_title:
+        sec_cloned = any(s.get('type') in ('clone', 'like') and int(s.get('section', 0)) == 0
+                         and int(s['from']) <= sec_block.idx <= int(s.get('to', s['from']))
+                         for s in specs) if sec_block is not None else False
+        if sec_block is not None and not first_is_title and not sec_cloned:
             el = self._clone(sec_block)
             for t in list(el.iter(HP + 'tbl')):
                 t.getparent().remove(t)
@@ -863,8 +1003,9 @@ class Builder:
             elif typ == 'blank':
                 out.append((kit.blank_el(), False))
                 continue
-            elif typ == 'clone':
-                el = self.make_clone(s)
+            elif typ in ('clone', 'like'):
+                els = self.make_clone(s)
+                el, extra_els = els[0], els[1:]
                 role = 'clone'
             else:
                 raise BuildError(f'알 수 없는 블록 type: {typ}')
@@ -885,17 +1026,18 @@ class Builder:
                 while proto_blank is not None and trail < gap:
                     out.append((copy.deepcopy(proto_blank), True))
                     trail += 1
-            if s.get('page_break') and out:
-                while out and out[-1][1]:
-                    out.pop()
+            if s.get('page_break'):
                 el.set('pageBreak', '1')
+            if el.get('pageBreak') == '1' and out:
+                while out and (out[-1][1] or self._is_blank_p(out[-1][0])):
+                    out.pop()
             out.append((el, False))
             for x in extra_els:
                 out.append((x, False))
             probes.append(self._probe(si, typ, s))
             # 자동 간격
             group_end = not (typ in ('bullet', 'numbered', 'paragraph') and nxt == typ)
-            if group_end and nxt is not None:
+            if group_end and nxt is not None and typ not in ('clone', 'like') and not s.get('no_gap'):
                 blanks = kit.after.get(role if role != 'clone' else 'paragraph', [])
                 if not blanks and typ == 'image':
                     blanks = kit.after.get('table') or kit.after.get('bullet') or []
@@ -915,6 +1057,20 @@ class Builder:
         return [e for e, _ in out], probes
 
     @staticmethod
+    def _is_blank_p(el):
+        if el.tag != HP + 'p' or el.get('pageBreak') == '1':
+            return False
+        if el.find('.//' + HP + 'tbl') is not None or el.find('.//' + HP + 'pic') is not None:
+            return False
+        if el.find('.//' + HP + 'secPr') is not None:
+            return False
+        for run in el.findall(HP + 'run'):
+            for ch in run:
+                if ch.tag not in (HP + 't', HP + 'ctrl'):
+                    return False
+        return not ptext(el).strip()
+
+    @staticmethod
     def _probe(si, typ, s):
         def first(x):
             if isinstance(x, dict):
@@ -924,7 +1080,13 @@ class Builder:
             return str(x).split('\n')[0].strip()
 
         pr = {'i': si, 'type': typ, 'texts': []}
-        if typ in ('heading', 'title', 'subtitle', 'paragraph', 'bullet', 'numbered', 'end'):
+        if typ in ('clone', 'like'):
+            raw = s.get('probe') or s.get('text') or ''.join(str(x) for x in (s.get('texts') or []))
+            t = re.sub(r'\s+', ' ', str(raw)).strip()
+            pr['texts'] = [t[:12]] if t else []
+            if s.get('qa') == 'heading':
+                pr['type'] = 'heading'
+        elif typ in ('heading', 'title', 'subtitle', 'paragraph', 'bullet', 'numbered', 'end'):
             t = re.sub(r'\s+', ' ', s.get('text', ''))
             pr['texts'] = [t[:12]]
         elif typ == 'image':
@@ -941,12 +1103,12 @@ class Builder:
             hdr = hdr[0] if hdr and isinstance(hdr[0], list) else hdr
             texts = []
             for r in rows[:16]:
-                t = ''
+                cands = []
                 for cell in r:
-                    t = first(cell)[:10]
-                    if len(t) >= 2:
-                        break
-                texts.append(t)
+                    t = re.sub(r'^[\s❍○●■□▪·※\-\*]+', '', first(cell))[:12]
+                    cands.append(t)
+                pick = next((t for t in cands if len(t) >= 3), None) or max(cands, key=len, default='')
+                texts.append(pick)
             if not texts and hdr:
                 texts = [first(hdr[0])[:10]]
             pr['texts'] = texts
@@ -963,6 +1125,11 @@ class Builder:
             root.append(e)
         pkg.set_xml(pkg.section_names()[0], root)
         register_images(pkg, self._img_new)
+        if 'settings.xml' in pkg.files:   # 문서에 저장된 '모아찍기' 같은 인쇄 설정이 PDF 에 영향을 주지 않도록 초기화
+            st = pkg.files['settings.xml'].decode('utf-8', 'ignore')
+            st = re.sub(r'(name="PrintMethod" type="short">)\d+(<)', r'\g<1>0\g<2>', st)
+            pkg.files['settings.xml'] = st.encode('utf-8')
+        self.head.root.set('secCnt', '1')   # 첫 구역만 남기므로 구역 수 일치시킴(안 맞으면 한글이 열지 못함)
         pkg.set_xml('Contents/header.xml', self.head.root)
         # 첫 구역 외 구역 제거
         extra = pkg.section_names()[1:]

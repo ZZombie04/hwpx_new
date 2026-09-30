@@ -145,7 +145,7 @@ def make_report(template, content, out_dir, name=None, engine=None, autofix=True
                 elif iss['kind'] == 'split_table' and iss['spec'] not in nb:
                     i = iss['spec']
                     # 바로 위가 소제목이면 소제목째로 넘긴다
-                    if i > 0 and specs[i - 1].get('type') == 'heading' and (i - 1) not in nb:
+                    if i > 0 and (specs[i - 1].get('type') == 'heading' or specs[i - 1].get('qa') == 'heading') and (i - 1) not in nb:
                         nb.add(i - 1)
                     else:
                         nb.add(i)

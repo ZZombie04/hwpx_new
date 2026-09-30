@@ -9,7 +9,7 @@ from .package import HH, HP, NS, Head, Package
 
 HEADING_RE = re.compile(r'^\s*([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅰⅱⅲⅳⅴⅵⅶⅷⅸⅹ]+|\d{1,2}|[가-힣]|[IVX]+)\s*[\.\)]\s*\S')
 NUMBERED_RE = re.compile(r'^\s*(\d{1,2}\s*[\.\)]|[가-힣]\s*[\.\)]|\(\d{1,2}\)|[①-⑳])\s*\S')
-BULLET_CHARS = '○●□■◦◎◆◇▶▷▪▫•ㆍ·※-–—*◈▣'
+BULLET_CHARS = '○●□■◦◎◆◇▶▷▪▫•ㆍ·※-–—*◈▣❍❏❖➢➔✓☞'
 
 
 def is_bullet_start(s: str) -> bool:
