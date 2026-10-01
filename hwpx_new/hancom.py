@@ -53,9 +53,13 @@ try {
   $res.error = [string]$_.Exception.Message
 } finally {
   if ($h -ne $null) {
+    Mark 'clear'
     try { $h.Clear(1) | Out-Null } catch {}
+    Mark 'quit'
     try { $h.Quit() | Out-Null } catch {}
+    Mark 'release'
     try { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($h) } catch {}
+    Mark 'end'
   }
 }
 $res.timeline = ($tl -join ' ')
@@ -112,20 +116,23 @@ function Log($m) { Add-Content -LiteralPath $log -Value ("{0:HH:mm:ss.fff} {1}" 
 $t0 = Get-Date
 $handled = @{}
 $tries = @{}
+$wasOpen = $false
 Log "approver start"
 while (-not (Test-Path -LiteralPath $stop) -and ((Get-Date) - $t0).TotalSeconds -lt $maxSec) {
   $set = New-Object 'System.Collections.Generic.HashSet[uint32]'
   foreach ($p in @(Get-Process -Name Hwp)) { try { if ($p.StartTime.ToFileTimeUtc() -ge $since) { [void]$set.Add([uint32]$p.Id) } } catch {} }
+  $sawNow = $false
   if ($set.Count -gt 0) {
     foreach ($line in [HwpWin]::Dialogs($set)) {
       $parts = $line.Split('|', 4)
       $key = $parts[0]
-      if ($handled.ContainsKey($key) -and (((Get-Date) - $handled[$key]).TotalSeconds -lt 2.0)) { continue }
+      if ($handled.ContainsKey($key) -and (((Get-Date) - $handled[$key]).TotalSeconds -lt 1.2)) { $sawNow = $true; continue }
       $w = $null
       try { $w = $AE::FromHandle([IntPtr][int64]$parts[0]) } catch { continue }
       if ($w -eq $null) { continue }
       $msgEl = $w.FindFirst($TS::Descendants, (New-Object System.Windows.Automation.PropertyCondition($AE::AutomationIdProperty, 'PART_Message')))
       if ($msgEl -eq $null) { continue }
+      $sawNow = $true
       $msg = $msgEl.Current.Name
       $btns = @($w.FindAll($TS::Descendants, (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, $CT::Button))))
       $names = @(); foreach ($b in $btns) { if ($b.Current.Name) { $names += $b.Current.Name } }
@@ -150,8 +157,8 @@ while (-not (Test-Path -LiteralPath $stop) -and ((Get-Date) - $t0).TotalSeconds 
       if ($pick) {
         $n = 1 + [int]$tries[$key]; $tries[$key] = $n
         if ($n -gt 6) { if ($n -eq 7) { Log 'GIVEUP (승인 창이 닫히지 않음)' }; continue }
-        # 1차: 접근성 호출(Invoke). 창이 그대로 남아 있으면 2차: 실제 마우스 클릭, 3차: 단축키(Alt+글자), 이후 번갈아 재시도.
-        $how = if ($n -eq 1) { 'invoke' } elseif ($n -eq 2) { 'mouse' } elseif ($n -eq 3) { 'keys' } elseif ($n % 2 -eq 0) { 'mouse' } else { 'invoke' }
+        # 1차: 실제 마우스 클릭(한글 승인 창은 접근성 호출을 무시하는 경우가 있음). 창이 남아 있으면 2차: 접근성 호출, 3차: 단축키(Alt+글자), 이후 번갈아 재시도.
+        $how = if ($n -eq 1) { 'mouse' } elseif ($n -eq 2) { 'invoke' } elseif ($n -eq 3) { 'keys' } elseif ($n % 2 -eq 0) { 'mouse' } else { 'invoke' }
         try {
           if ($how -eq 'invoke') {
             $pick.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -176,6 +183,8 @@ while (-not (Test-Path -LiteralPath $stop) -and ((Get-Date) - $t0).TotalSeconds 
       }
     }
   }
+  if ($wasOpen -and -not $sawNow) { Log 'CLEARED' }
+  $wasOpen = $sawNow
   Start-Sleep -Milliseconds 300
 }
 Log 'approver end'
@@ -316,34 +325,40 @@ def run(src: str, dst: str | None, fmt_in: str, fmt_out: str = '', timeout: int 
     before = hwp_pids()
     appr = _Approver(wd)
     proc = None
+    fout = os.path.join(wd, f'run_{tag}.out')
+    ferr = os.path.join(wd, f'run_{tag}.err')
     try:
         appr.start()
-        proc = subprocess.Popen([ps, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, w_in, w_out, fmt_in,
-                                 fmt_out], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8',
-                                errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        t0 = time.time()
-        first_dialog = None
-        dialog_wait = float(os.environ.get('HWPX_NEW_DIALOG_WAIT', '50'))
-        stdout = stderr = ''
-        while True:
-            try:
-                stdout, stderr = proc.communicate(timeout=1.0)
-                break
-            except subprocess.TimeoutExpired:
-                pass
-            now = time.time()
-            log = appr.peek()
-            if first_dialog is None and ' DIALOG ' in log:
-                first_dialog = now
-            if first_dialog is not None and now - first_dialog > dialog_wait:
-                out['error'] = 'dialog_stuck'
-                break
-            if now - t0 > timeout:
-                out['error'] = 'timeout'
-                break
+        with open(fout, 'wb') as fo, open(ferr, 'wb') as fe:
+            proc = subprocess.Popen([ps, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, w_in, w_out,
+                                     fmt_in, fmt_out], stdout=fo, stderr=fe,
+                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            t0 = time.time()
+            dialog_wait = float(os.environ.get('HWPX_NEW_DIALOG_WAIT', '50'))
+            last_len, last_change = 0, t0
+            while proc.poll() is None:
+                time.sleep(0.5)
+                now = time.time()
+                log = appr.peek()
+                if len(log) != last_len:
+                    last_len, last_change = len(log), now
+                lines = [l for l in log.splitlines() if (' DIALOG ' in l or ' CLICK' in l or 'CLEARED' in l or 'GIVEUP' in l)]
+                dialog_open = bool(lines) and 'CLEARED' not in lines[-1]
+                if dialog_open and now - last_change > dialog_wait:
+                    out['error'] = 'dialog_stuck'
+                    break
+                if now - t0 > timeout:
+                    out['error'] = 'timeout'
+                    break
         if out['error']:
             proc.kill()
         else:
+            def _read(p):
+                try:
+                    return open(p, encoding='utf-8-sig', errors='replace').read()
+                except OSError:
+                    return ''
+            stdout, stderr = _read(fout), _read(ferr)
             line = next((l for l in reversed((stdout or '').splitlines()) if l.startswith('RESULT ')), None)
             if line:
                 try:
@@ -359,7 +374,7 @@ def run(src: str, dst: str | None, fmt_in: str, fmt_out: str = '', timeout: int 
     finally:
         out['dialogs'] = summarize_dialogs(appr.finish())
         kill_new_hwp(before)
-        for f in (script, w_in, w_out):
+        for f in (script, w_in, w_out, fout, ferr):
             try:
                 if f:
                     os.unlink(f)
