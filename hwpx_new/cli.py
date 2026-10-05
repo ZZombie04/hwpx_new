@@ -104,6 +104,12 @@ def build_parser():
     p.add_argument('folder')
     p.add_argument('-o', '--out', help='한눈에 보기 이미지 저장 경로(기본: 폴더/_photo_sheet.png)')
 
+    p = sub.add_parser('qa', help='조판 점검(Playwright): 글자색·단계 정렬·내어쓰기·글꼴·여백·겹침·쪽 끝 소제목·빈 쪽 + 문제 위치 스크린숏')
+    p.add_argument('pdf')
+    p.add_argument('-o', '--out', help='점검 결과 폴더(기본: PDF이름_점검)')
+    p.add_argument('--skip', default='1', help='점검에서 뺄 쪽(쉼표, 기본: 표지 1쪽)')
+    p.add_argument('--colors', default='#000000,#FFFFFF,#C00000', help='허용 글자색(쉼표)')
+
     p = sub.add_parser('preview', help='PDF 한 쪽을 PNG 로 저장')
     p.add_argument('pdf')
     p.add_argument('--page', type=int, default=1)
@@ -191,6 +197,10 @@ def _doctor_hancom():
 
 
 def _run(a, ap):
+    if a.cmd == 'qa':
+        from . import layout_qa
+        argv = [a.pdf, '--skip', a.skip, '--colors', a.colors] + (['-o', a.out] if a.out else [])
+        return layout_qa.main(argv)
     if a.cmd == 'doctor':
         rc = _doctor()
         if a.hancom:

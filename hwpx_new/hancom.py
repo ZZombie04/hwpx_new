@@ -383,9 +383,24 @@ def run(src: str, dst: str | None, fmt_in: str, fmt_out: str = '', timeout: int 
     return out
 
 
+_TRANSIENT = ('80080005', 'CO_E_SERVER_EXEC_FAILURE', '800706BA', '800706BE', '80010001', 'RPC_E_CALL_REJECTED')
+
+
+def _run_retry(src, dst, fmt_in, fmt_out, timeout, tries=4):
+    """한글 COM 서버가 이전 변환을 막 끝낸 직후에는 '서버 실행 실패'가 잠깐 날 수 있다(실측). 잠시 쉬었다 다시 시도한다."""
+    import time
+    r = run(src, dst, fmt_in, fmt_out, timeout)
+    for i in range(tries - 1):
+        if r.get('ok') or not any(k in (r.get('error') or '') for k in _TRANSIENT):
+            break
+        time.sleep(6 + 6 * i)
+        r = run(src, dst, fmt_in, fmt_out, timeout)
+    return r
+
+
 def export_pdf(hwpx: str, pdf: str, timeout: int = None):
     """HWPX → PDF. 반환: (성공, 메시지, 정보 dict)."""
-    r = run(hwpx, pdf, 'HWPX', 'PDF', timeout)
+    r = _run_retry(hwpx, pdf, 'HWPX', 'PDF', timeout)
     if r['ok']:
         if not r.get('opened'):
             return False, '한글이 문서를 열지 못했습니다(파일이 손상됐거나 한글이 읽지 못하는 구조).', r

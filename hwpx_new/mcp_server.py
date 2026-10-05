@@ -16,7 +16,7 @@ import traceback
 
 GUIDE = os.path.join(os.path.dirname(__file__), 'FORMAT.md')
 SERVER_NAME = 'hwpx_new'
-SERVER_VERSION = '2.0.0'
+SERVER_VERSION = '2.1.0'
 SUPPORTED = ('2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07')
 
 TOOLS = {}

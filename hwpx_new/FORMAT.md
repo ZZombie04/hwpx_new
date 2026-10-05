@@ -47,7 +47,8 @@ Markdown 안에 ` ```json … ``` ` 로 블록 하나(또는 목록)를 그대�
 | `heading` / `paragraph` / `numbered` / `bullet` | `text`, `level`(글머리), `class`, `page_break` |
 | `box` | `title`, `lines`, `class` |
 | `table` | `header`(문자열 목록 = 1줄, 목록의 목록 = 여러 줄), `rows`, `widths`, `align`, `class`, `proto`(서식 블록 번호), `min_row`, `floating` |
-| `clone` | `from`, `to`, `section`, `text`(한 문단 교체), `paras`(글이 있는 문단을 차례로 교체), `texts`(글 덩어리 단위 교체), `replace`(문구 치환) |
+| `clone` | `from`, `to`, `section`, `text`(한 문단 교체), `paras`(글이 있는 문단을 차례로 교체 — 항목을 `{"like":k,"text":…}` 로 쓰면 k번 문단 모양의 새 문단을 끼워 넣음), `texts`(글 덩어리 단위 교체), `replace`(문구 치환), `scale_height`(꽉 찬 양식 표의 높이 비율 축소, 예 0.9) |
+| `table` 추가 키 | `inline: true`(서식의 떠 있는 표를 글자처럼 취급 — 뒤 문단이 표 아래로 밀림) |
 | `like` | `clone` 과 같음(뜻을 분명히 하는 이름) |
 | `image` / `gallery` | `path`·`caption`·`width_mm` / `images`·`columns`·`title` |
 | `blank`, `end` | 빈 줄, "끝." |

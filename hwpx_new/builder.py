@@ -122,14 +122,14 @@ def set_bullet_text(p, text, marker=None):
     ts = own_ts(p)
     k = None
     for i, t in enumerate(ts):
-        if is_bullet_start(''.join(t.itertext())):
+        if is_bullet_start(''.join(t.itertext()) + 'x'):
             k = i
             break
     if k is None:
         set_text(p, (marker or '') + text)
         return
     cur = ''.join(ts[k].itertext())
-    mk = bullet_marker(cur) if marker is None else marker
+    mk = bullet_marker(cur + 'x') if marker is None else marker
     _set_t(ts[k], mk + text)
     for t in ts[k + 1:]:
         _set_t(t, '')
@@ -844,8 +844,14 @@ class Builder:
                 text = ts[0].text or ''
                 if '**' not in text:
                     continue
+                lead = ''
+                if text.lstrip().startswith('*'):      # '**' 글머리 기호(서식의 글자)는 굵게 표시가 아니므로 건드리지 않는다
+                    lead = bullet_marker(text + 'x')
+                    if lead and '**' not in text[len(lead):]:
+                        continue
+                    text = text[len(lead):]
                 if text.count('**') % 2:
-                    ts[0].text = text.replace('**', '')
+                    ts[0].text = lead + text.replace('**', '')
                     continue
                 segs, pos = [], 0
                 for m in INLINE_BOLD.finditer(text):
@@ -855,6 +861,8 @@ class Builder:
                     pos = m.end()
                 if pos < len(text):
                     segs.append((text[pos:], False))
+                if lead:
+                    segs.insert(0, (lead, False))
                 segs = [(t, b) for t, b in segs if t != '']
                 if not segs:
                     continue
@@ -874,12 +882,13 @@ class Builder:
         """문단 p 에 글 넣기(글머리 기호·굵은 앞말 같은 서식 문단의 글자 덩어리 구성을 따름)."""
         if bullet:
             ts = own_ts(p)
-            k = next((i for i, t in enumerate(ts) if is_bullet_start(''.join(t.itertext()))), None)
+            # 기호만 따로 한 덩어리('* ')인 서식도 있으므로 뒤에 글자를 붙여 판별한다
+            k = next((i for i, t in enumerate(ts) if is_bullet_start(''.join(t.itertext()) + 'x')), None)
             if k is None:
                 fill_runs(p, (marker or '') + text, self.head)
                 return
             cur = ''.join(ts[k].itertext())
-            mk = bullet_marker(cur) if marker is None else marker
+            mk = bullet_marker(cur + 'x') if marker is None else marker
             fill_runs(p, mk + text, self.head)
         else:
             fill_runs(p, text, self.head)
@@ -930,6 +939,18 @@ class Builder:
     def _clone(self, blk):
         el = copy.deepcopy(blk.el)
         strip_ls(el)
+        # 쪽 번호 다시 시작(newNum)은 서식에서 그 블록이 처음 쓰일 때만 살린다(같은 모양을 여러 번 쓰면 쪽 번호가 매번 1로 돌아가므로)
+        if el.find('.//' + HP + 'newNum') is not None:
+            used = self.__dict__.setdefault('_newnum_used', set())
+            if blk.idx in used:
+                for nn in list(el.iter(HP + 'newNum')):
+                    ctrl = nn.getparent()
+                    if ctrl is not None and ctrl.tag == HP + 'ctrl' and len(ctrl) == 1:
+                        ctrl.getparent().remove(ctrl)
+                    elif ctrl is not None:
+                        ctrl.remove(nn)
+            else:
+                used.add(blk.idx)
         return el
 
     # ---- 표지 -----------------------------------------------------------------
@@ -1379,6 +1400,8 @@ class Builder:
             floating = sum(row_h) > (0.8 if proto_inline else 0.4) * usable
         if floating:
             tbl.find(HP + 'pos').set('treatAsChar', '0')
+        elif spec.get('inline'):          # 서식의 표가 '떠 있는' 표일 때, 글자처럼 취급해 뒤따르는 글이 표 아래로 밀리게 한다
+            tbl.find(HP + 'pos').set('treatAsChar', '1')
         self._renew_tables(p)
         return p
 
@@ -1457,6 +1480,55 @@ class Builder:
                 if old in full:
                     set_text(p, full.replace(old, new))
 
+    def _fill_paras(self, spec, out, paras):
+        """복제한 블록 안 '글이 있는 문단'(순서대로 0번부터)을 paras 로 바꾼다.
+        - 문자열: 다음 문단 자리에 글을 넣는다(글자 모양은 바뀐 곳만 새로).
+        - {"like": k, "text": "…"}: k번 문단의 모양을 그대로 복제한 **새 문단**을 바로 앞 문단 뒤에 끼워 넣는다(자리를 쓰지 않음).
+        끼워 넣기를 쓰면 남는 원래 문단은 지운다(칸 안의 마지막 문단은 비움)."""
+        slots = [p for el in out for p in el.iter(HP + 'p')
+                 if not (p is el and el.find('.//' + HP + 'tbl') is not None) and ptext(p).strip()]
+        n_slots = len(slots)
+        plain = [x for x in paras if not isinstance(x, dict)]
+        structured = len(plain) != len(paras) or bool(spec.get('trim'))
+        if not structured and n_slots != len(plain):
+            self.warnings.append(f'clone {spec.get("from")}번 블록에는 글이 있는 문단이 {n_slots}개인데 paras 는 {len(plain)}개입니다'
+                                 '(모자란 문단은 비워지고 남는 글은 버려집니다).')
+        if structured and len(plain) > n_slots:
+            self.warnings.append(f'clone {spec.get("from")}번 블록: 글 자리가 {n_slots}개인데 문자열 paras 가 {len(plain)}개입니다'
+                                 '(남는 글은 {"like":번호,"text":…} 로 끼워 넣으세요).')
+        orig = [copy.deepcopy(p) for p in slots]
+        at_box = [p.getparent() is slots[0].getparent() for p in slots]     # 큰 칸(첫 문단이 있는 칸)에 바로 놓인 문단인가
+        box_level = slots[0].getparent() if slots else None
+        used = 0
+        last = None
+        for item in paras:
+            if isinstance(item, dict):
+                k = int(item.get('like', 0))
+                if not (0 <= k < n_slots):
+                    self.warnings.append(f'clone {spec.get("from")}번 블록: like {k} 는 범위 밖입니다(0~{n_slots - 1}).')
+                    continue
+                new = copy.deepcopy(orig[k])
+                set_text_keep(new, str(item.get('text', '')))
+                if last is None:
+                    slots[0].addprevious(new)
+                else:
+                    anchor = last
+                    if at_box[k]:       # 안쪽 표의 칸 안에서 끝났더라도, 큰 칸 수준의 문단은 표 바깥(표를 품은 문단 뒤)에 놓는다
+                        while anchor.getparent() is not None and anchor.getparent() is not box_level:
+                            anchor = anchor.getparent()
+                    anchor.addnext(new)
+                last = new
+            elif used < n_slots:
+                set_text_keep(slots[used], item)
+                last = slots[used]
+                used += 1
+        for p in slots[used:]:
+            parent = p.getparent()
+            if structured and parent is not None and sum(1 for c in parent if c.tag == HP + 'p') > 1:
+                parent.remove(p)
+            else:
+                set_text_keep(p, '')
+
     def make_clone(self, spec):
         """서식의 블록(들)을 그대로 복제. texts(순서대로 교체) / text(문단 전체 교체) / replace(문구 치환) 지원.
         from..to 로 구간 복제, section 으로 다른 구역의 블록 복제."""
@@ -1497,22 +1569,24 @@ class Builder:
                     set_text_keep(targets[0], spec['text'])
         paras = spec.get('paras')
         if paras is not None:              # 글이 있는 문단을 차례로 바꿈(문단 안 글자 모양은 바뀐 곳만 새로)
-            n_slots = sum(1 for el in out for p in el.iter(HP + 'p')
-                          if not (p is el and el.find('.//' + HP + 'tbl') is not None) and ptext(p).strip())
-            if n_slots != len(paras):
-                self.warnings.append(f'clone {spec.get("from")}번 블록에는 글이 있는 문단이 {n_slots}개인데 paras 는 {len(paras)}개입니다'
-                                     '(모자란 문단은 비워지고 남는 글은 버려집니다).')
-            idx = 0
-            for el in out:
-                for p in el.iter(HP + 'p'):
-                    if p is el and el.find('.//' + HP + 'tbl') is not None:
-                        continue
-                    if ptext(p).strip():
-                        set_text_keep(p, paras[idx] if idx < len(paras) else '')
-                        idx += 1
+            self._fill_paras(spec, out, paras)
         if spec.get('replace'):
             for el in out:
                 self._replace_text(el, spec['replace'])
+        if spec.get('scale_height'):             # 한 쪽을 꽉 채운 양식이 다른 쪽 여백 설정에서 넘칠 때: 바깥 표의 최소 높이를 비율로 줄인다
+            f = float(spec['scale_height'])
+            for el in out:
+                for tbl in el.iter(HP + 'tbl'):
+                    if any(a.tag == HP + 'tbl' for a in tbl.iterancestors()):
+                        continue
+                    sz = tbl.find(HP + 'sz')
+                    if sz is not None and sz.get('height'):
+                        sz.set('height', str(int(int(sz.get('height')) * f)))
+                    for tr in tbl.findall(HP + 'tr'):
+                        for tc in tr.findall(HP + 'tc'):
+                            cs = tc.find(HP + 'cellSz')
+                            if cs is not None and cs.get('height'):
+                                cs.set('height', str(int(int(cs.get('height')) * f)))
         for el in out:
             self._renew_tables(el)
         return out
