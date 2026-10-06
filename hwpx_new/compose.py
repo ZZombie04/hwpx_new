@@ -277,9 +277,9 @@ class Composer:
             xml += f'<hp:run charPrIDRef="{cid}"><hp:t>{body}</hp:t></hp:run>'
         return xml + '</hp:p>'
 
-    def make_p(self, text, name, size=None, para_id=None):
+    def make_p(self, text, name, size=None, para_id=None, color='#000000'):
         pid = para_id or self.style_ids(name, size=size)[0]
-        runs = self._runs(text, name, size) if text else [('', self.char(*self.STYLES[name][:2]))]
+        runs = self._runs(text, name, size, color=color) if text else [('', self.char(*self.STYLES[name][:2]))]
         return etree.fromstring(self._p_xml(pid, runs, self.STYLES[name][5] > 0).replace('<hp:p ', f'<hp:p {NSDECL} ', 1))
 
     def _add(self, el):
@@ -293,8 +293,9 @@ class Composer:
         """다음 블록을 새 쪽에서 시작."""
         self._next_page = True
 
-    def p(self, text, name='p', size=None):
-        return self._add(self.make_p(text, name, size))
+    def p(self, text, name='p', size=None, color='#000000'):
+        """문단 하나. color 는 제목·표어처럼 디자인상 꼭 필요한 곳에만(본문은 검정)."""
+        return self._add(self.make_p(text, name, size, color=color))
 
     def h2(self, text):
         return self.p('■ ' + text, 'h2')
@@ -616,8 +617,8 @@ class Composer:
                 pid = self.style_ids(name)[0]
                 if a == 'r':
                     pid = self.para('RIGHT', 0, 0, 0, 0, self.STYLES[name][8], False, True)
-                color = ACCENT if spec.get('accent') or (r, c) in accent_cells else '#000000'
-                runs = self._runs(ln, name, bold=bold, color=color)
+                color = spec.get('color') or (ACCENT if spec.get('accent') or (r, c) in accent_cells else '#000000')
+                runs = self._runs(ln, name, size=spec.get('size'), bold=bold, color=color)
                 ps += self._p_xml(pid, runs, self.STYLES[name][5] > 0)
             h = int(max(1, len(lines)) * fsz * 100 * 1.3 + 2 * pad) + img_h
             row_h[r] = max(row_h[r], h // rs if rs > 1 else h, min_row if r >= head else 0)
