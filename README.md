@@ -91,8 +91,14 @@ AI 는 마지막에 **HWPX 경로, PDF 경로, (지어낸 내용이 있다면) �
 
 - 체계: **Ⅰ(대제목) → ■ 소제목 → ❍ 항목 → - 세부 → ※ 참고** — 단계마다 글꼴·크기·들여쓰기·줄간격 고정, 둘째 줄은 기호 뒤 글자에 정확히 맞춤
 - 글자색은 검정, 꼭 지킬 기한만 강조색 / 표는 머리행 연한 남색·항목 열 연회색·위아래 굵은 선으로 통일
-- 파이썬 API: `from hwpx_new.compose import Composer` (예시는 `hwpx-new instructions` 의 3-3)
+- 명세(JSON): `hwpx-new compose 명세.json -o 결과.hwpx --check` (예시 `examples/compose_spec.json`), 파이썬 API 는 `hwpx_new.compose.Composer`
 - 만든 뒤 `hwpx-new qa 결과.pdf` 로 정렬·색·겹침을 자동 점검합니다.
+
+## 어떤 AI 모델로 해도 같은 결과가 나오게
+
+모양을 AI 가 파이썬으로 직접 짜면 모델마다 결과가 달라집니다(강한 모델은 잘 짜고, 가벼운 모델은 들여쓰기·표·결재란을 놓침).
+그래서 2.2.0 부터는 **모양은 도구가, AI 는 JSON 명세(글과 구조)만** 씁니다 — `compose`·`gongmun`·`patch` 명세 → 만들기 → `--check`(오류 0 까지) → 쪽 그림 확인.
+지침(`AGENTS.md`)은 '작업 고르기 표 → 공통 순서 체크리스트'로 되어 있어 가벼운 모델도 같은 순서를 따릅니다. 예시 명세: `examples/*.json`.
 
 ## 한글이 "파일 접근 허용"을 물어볼 때
 
@@ -114,7 +120,12 @@ AI 는 마지막에 **HWPX 경로, PDF 경로, (지어낸 내용이 있다면) �
 | `hwpx-new skeleton 서식.hwpx -o 뼈대.md` | 뼈대 Markdown 만 저장 |
 | `hwpx-new selfcheck 서식.hwpx [-v]` | 서식을 다시 조립해 원본과 모양 비교(서식 재현도 %) |
 | `hwpx-new build 서식.hwpx content.md -o 결과폴더` | **HWPX + PDF + 미리보기 PNG** (자동 점검·보정 포함) |
-| `hwpx-new qa 결과.pdf` | **조판 점검(Playwright)**: 글자색·단계 정렬·내어쓰기·글꼴·겹침·쪽 끝 소제목·빈 쪽 + 문제 위치 스크린숏 |
+| `hwpx-new compose 명세.json -o 결과.hwpx --check` | **정돈 조판 명세**: 계획서·안내문을 Ⅰ→■→❍→- 체계로(파이썬 없이 JSON 만) |
+| `hwpx-new gongmun 명세.json -o 결과.hwpx --check` | **공문**: 기관 공문 서식 + 내용 JSON → 기안문·겉공문(번호 체계·표·QR·붙임/끝·수신자·결재란) |
+| `hwpx-new patch 원본.hwpx ops.json -o 결과.hwpx` | **손본 파일 고치기**: 사용자가 한글에서 맞춘 자간·빈 줄은 그대로 두고 글로 찾은 곳만 바꾸기 |
+| `hwpx-new replace 원본.hwpx -o 결과.hwpx --pair "옛=>새"` | 행사명·날짜 등 **글자만** 바꾸기(나머지는 바이트 그대로) |
+| `hwpx-new diff A.hwpx B.hwpx` | 두 파일의 글 차이 + 한글에서 저장한 파일인지 |
+| `hwpx-new qa 결과.hwpx [--strict]` | **조판 점검(Playwright)**: 글자색·단계 정렬·내어쓰기·글꼴·겹침·쪽 끝 소제목·빈 쪽·공문 결재란 + 문제 위치 스크린숏(HWPX 를 주면 PDF 로 바꿔서) |
 | `hwpx-new photos 사진폴더` | 사진 목록 + 번호 붙은 한눈에 보기 이미지 |
 | `hwpx-new read 문서.hwpx` | HWPX 본문을 Markdown 으로 읽기 |
 | `hwpx-new preview 결과.pdf --page 2` | PDF 한 쪽을 PNG 로 |
