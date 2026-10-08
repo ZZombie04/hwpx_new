@@ -70,3 +70,45 @@ Markdown 안에 ` ```json … ``` ` 로 블록 하나(또는 목록)를 그대�
 3. 문장 어미·문체는 서식 원문과 통일한다(공문서는 개조식 `~함.` `~임.`, 안내문은 `~합니다.`).
 4. 표지·머리말 성격의 칸(기관명·날짜·대회명)에 서식 원문의 글이 남지 않게 모두 바꾼다.
 5. 사용자가 주지 않은 사실(숫자·인명·날짜)을 지어 넣었다면 **반드시 최종 답변에 목록으로 알린다.**
+
+---
+
+# 명세(JSON) 형식 — compose · gongmun · patch
+
+모양은 도구가 정하고, AI 는 글과 구조만 JSON 으로 쓴다. 예시 파일: 저장소 `examples/compose_spec.json`, `examples/gongmun_spec.json`, `examples/patch_ops.json`.
+글 안에서 `**굵게**`, `^^강조(진한 빨강)^^` 를 쓸 수 있다. 상대 경로는 명세 파일이 있는 폴더 기준.
+
+## 표(compose·gongmun·patch 공통)
+
+`{"table": {"rows": [[칸, …], …], "label_col": true, "head": 1, "widths": [9500, 38690], "aligns": ["c", "l"], "size": "s", "split": false}}`
+- 칸 = 글 또는 `{"t": "글", "cs": 2, "rs": 3, "a": "l", "b": true, "fill": "#F2F2F2", "accent": true}`. 칸 안 줄바꿈은 `\n`, 줄 앞 `- `·`※ ` 는 내어쓰기.
+- 그림 칸 `{"img": "그림.png", "w_mm": 25}`, QR 칸 `{"qr": "https://…", "caption": "QR 바로가기", "rs": 3, "size_mm": 21}`.
+- `label_col: true` 이면 첫 열이 항목 열(연회색·굵게)이고 머리행 없음(`head` 0)이 기본. 너비를 안 주면 자동.
+
+## 조판 명세(compose) — `hwpx-new compose 명세.json -o 결과.hwpx --check`
+
+`{"template", "heading_block"(대제목 표 블록 번호, 선택), "cover": {"from", "to", "replace", "wrap"}(선택), "title", "blocks": [...]}`
+블록: `{"h1": "Ⅰ 제목"}`(`"page": true` 면 새 쪽) · `{"h2"}` · `{"b1"}` · `{"b1h"}`(굵은 묶음 제목) · `{"b2"}` · `{"b3"}` ·
+`{"note": "…", "level": 1|2}` · `{"p": "…", "style": "body"}` · `{"table": …}` · `{"box": {"title", "lines": ["❍ …", "- …"]}}` ·
+`{"image": {"path", "width_mm", "max_h_mm", "caption"}}` · `{"page": true}` · `{"blank": true}` · `{"clone": {"from", "to", "replace", "recolor"}}`
+
+## 공문 명세(gongmun) — `hwpx-new gongmun 명세.json -o 결과.hwpx --check`
+
+| 키 | 뜻 |
+|---|---|
+| `template` | 기관 공문 서식(머리 표 '수신'·'제목' 칸, 결재란 '시행'·'협조자'가 든 HWPX) |
+| `receiver`, `title` | 머리 표의 수신 칸(예: "수신자 참조", "내부결재"), 제목 칸 |
+| `body` | 줄(문자열) 또는 `{"table": …}` / `{"page": true}`. 줄 앞 번호로 단계: `1.` → `가.` → `1)` → `가)`, `※` 참고 |
+| `attachments` | 붙임 목록(없으면 마지막 줄 뒤에 `끝.`). "○○ 계획" → "붙임  ○○ 계획 1부.  끝." |
+| `sender` | 발신 명의(시행문만, 예: "○○교육지원청교육장") |
+| `receivers` | 수신자 참조일 때 수신자 줄(목록) |
+| `approval` | 결재란 칸 바꾸기 `{"시행": "○○과-○○○○(2026. 10. ○○.)"}` 또는 `{"replace": {"옛": "새"}}` |
+| `head_replace`, `font`, `size` | (선택) 머리 표 글 치환, 본문 글꼴·크기(기본: 서식 본문과 같게) |
+
+## 고치기(patch) — `hwpx-new patch 원본.hwpx ops.json -o 결과.hwpx [--style gongmun] --check`
+
+`[{"op": "replace_text", "find", "to", "count"|"all"}, {"op": "replace_block", "find", "blocks"}, {"op": "insert_after"|"insert_before", "find", "blocks"},
+{"op": "delete_block", "find"}, {"op": "page_break", "find", "on": true|false}]`
+- `find`: 그 블록에만 있는 글(빈칸 무시). 정확히 한 블록이어야 한다(아니면 후보와 함께 멈춤). 같은 글이 여러 블록이면 `"nth": 2`.
+- `blocks`: 조판 명세 블록과 같은 문법(공문이면 `--style gongmun` 에 "가. …" 줄과 `{"table"}`).
+- 나머지 블록은 하나도 바꾸지 않고 그대로 복제한다(사용자가 맞춘 자간·빈 줄·들여쓰기·글자색 유지).

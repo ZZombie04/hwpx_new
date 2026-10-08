@@ -16,7 +16,7 @@ import traceback
 
 GUIDE = os.path.join(os.path.dirname(__file__), 'FORMAT.md')
 SERVER_NAME = 'hwpx_new'
-SERVER_VERSION = '2.1.0'
+SERVER_VERSION = '2.2.0'
 SUPPORTED = ('2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07')
 
 TOOLS = {}
@@ -67,7 +67,14 @@ class Image:
 
 
 START_HERE = (
-    '## hwpx_new 사용 순서\n'
+    '## 작업 고르기(먼저)\n'
+    '- 서식을 그대로 살린 새 문서 → 아래 1~5 (hwpx_analyze → hwpx_build)\n'
+    '- 정돈된 계획서·안내문(Ⅰ→■→❍→-) → hwpx_compose(명세 JSON)\n'
+    '- 공문(내부 기안문·겉공문·시행문) → hwpx_gongmun(명세 JSON, 기관 공문 서식 필요)\n'
+    '- 사용자가 한글에서 손본 파일 고치기 → hwpx_patch(ops JSON) / 글자만 바꾸기 → hwpx_replace\n'
+    '- 점검 → hwpx_qa("오류 0" 까지) + hwpx_preview(모든 쪽)\n'
+    '명세 문법: hwpx_format_guide. 사실은 입력에서만, 없는 값은 ○○ 로 비우고 보고.\n\n'
+    '## hwpx_new 사용 순서(서식 재현)\n'
     '1. hwpx_analyze(template_path): 사용자가 준 HWPX 서식을 분석한다(서식 종류 목록·블록 목록·표지 칸). 이어서 나오는 "뼈대 Markdown"이\n'
     '   서식을 그대로 다시 만들 수 있는 문서다.\n'
     '2. 그 뼈대 Markdown 을 사용자의 요청(예: 계획서 → 결과보고서)에 맞게 고쳐 쓴다. `{B2}` 같은 서식 종류 표시·`@clone N` 줄은 지우지 말고,\n'
@@ -158,6 +165,67 @@ def hwpx_preview(pdf_path, page=1, dpi=80):
     d = pymupdf.open(pdf_path)
     pix = d[max(0, min(int(page), len(d)) - 1)].get_pixmap(dpi=int(dpi))
     return Image(pix.tobytes('png'), 'png')
+
+
+def _spec_arg(spec):
+    """명세 인자: dict, JSON 문자열, 또는 JSON 파일 경로."""
+    if isinstance(spec, (dict, list)):
+        return spec
+    return spec
+
+
+@tool('공문(기안문·시행문)을 만든다: 기관 공문 서식(머리 표·결재란이 든 HWPX) + 내용 명세(JSON) → HWPX. '
+      '본문 번호 체계(1.→가.→1)→가))·표·QR·붙임/끝·발신 명의·수신자 줄은 도구가 정한다. 명세 문법은 hwpx_format_guide 의 "공문 명세".',
+      spec=('string', '공문 명세 JSON(문자열 또는 파일 경로). template·receiver·title·body·attachments·sender·receivers·approval'),
+      output=('string', '결과 HWPX 경로'), check=('boolean', 'PDF 로 바꿔 조판 점검까지(기본 true)', False))
+def hwpx_gongmun(spec, output, check=True):
+    from .gongmun import build
+    build(_spec_arg(spec), output)
+    return output + ('\n' + _qa_text(output) if check else '')
+
+
+@tool('정돈 조판(계획서·안내문, Ⅰ→■→❍→- 체계): 서식 + 명세(JSON) → HWPX. 파이썬 없이 Composer 를 쓴다.',
+      spec=('string', '조판 명세 JSON(문자열 또는 파일 경로). template·heading_block·cover·blocks·title'),
+      output=('string', '결과 HWPX 경로'), check=('boolean', 'PDF 로 바꿔 조판 점검까지(기본 true)', False))
+def hwpx_compose(spec, output, check=True):
+    from .spec import build
+    build(_spec_arg(spec), output)
+    return output + ('\n' + _qa_text(output) if check else '')
+
+
+@tool('사용자가 한글에서 손본 HWPX 를 손본 그대로 두고, 글로 찾은 곳만 고친다(replace_text·replace_block·insert_after·'
+      'insert_before·delete_block·page_break). 원본은 덮어쓰지 말고 output 을 새 경로로.',
+      src=('string', '원본 HWPX'), ops=('string', '고칠 내용 JSON 배열(문자열 또는 파일 경로)'),
+      output=('string', '결과 HWPX 경로'), style=('string', "새로 넣는 문단 모양: 'plan'(계획서) 또는 'gongmun'(공문)", False),
+      check=('boolean', 'PDF 로 바꿔 조판 점검까지(기본 true)', False))
+def hwpx_patch(src, ops, output, style='plan', check=True):
+    from .patch import patch
+    rep = patch(src, ops, output, style=style)
+    return '\n'.join(rep + [output]) + ('\n' + _qa_text(output) if check else '')
+
+
+@tool('이름·날짜 같은 문자열만 바꾼다(나머지 내용·서식은 바이트 그대로). pairs 는 [["옛 글","새 글"], …].',
+      src=('string', '원본 HWPX'), output=('string', '결과 HWPX'), pairs=('array', '[["옛 글","새 글"], …]'))
+def hwpx_replace(src, output, pairs):
+    from .patch import replace_text_zip
+    hits = replace_text_zip(src, output, [tuple(p) for p in pairs])
+    return '\n'.join(f'"{k}": 본문 {n}곳' for k, n in hits.items()) + f'\n{output}'
+
+
+def _qa_text(path):
+    import io
+    import contextlib
+    from . import layout_qa
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        layout_qa.main([path, '--strict'])
+    return buf.getvalue().strip()
+
+
+@tool('조판 점검: HWPX 또는 PDF 를 검사한다(글자색·단계 정렬·내어쓰기·여백·겹침·쪽 끝 소제목·빈 쪽·공문 결재란 위치). '
+      '"오류 0" 이 될 때까지 고친 뒤 hwpx_preview 로 쪽 그림도 확인한다.', path=('string', 'HWPX 또는 PDF 경로'))
+def hwpx_qa(path):
+    return _qa_text(path)
 
 
 # ---------------------------------------------------------------- JSON-RPC

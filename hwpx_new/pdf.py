@@ -72,7 +72,8 @@ def convert(hwpx, pdf, prefer=None):
         ok, msg = ENGINES[name](hwpx, pdf)
         tries = 0
         while not ok and name == 'hancom' and tries < 2 and ('제한 시간' in msg or 'CO_E_SERVER' in msg
-                                                             or 'New-Object' in msg or 'RPC' in msg or '80080005' in msg):
+                                                             or 'New-Object' in msg or 'RPC' in msg or '80080005' in msg
+                                                             or '열지 못' in msg):    # 직전 변환 직후 잠깐 못 여는 경우(실측)
             tries += 1
             import time
             time.sleep(4)

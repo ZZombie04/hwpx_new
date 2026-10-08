@@ -49,7 +49,9 @@ def ptext(p) -> str:
     out = []
     for run in p.findall(HP + 'run'):
         for t in run.findall(HP + 't'):
-            out.append(''.join(t.itertext()))
+            out.append(t.text or '')
+            for ch in t:                       # 묶음 빈칸(기호 뒤 등)은 빈칸으로 읽는다
+                out.append((' ' if ch.tag.endswith(('nbSpace', 'fwSpace')) else '') + (ch.tail or ''))
     return ''.join(out)
 
 

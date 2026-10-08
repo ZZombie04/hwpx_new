@@ -1,3 +1,4 @@
 lxml>=4.9
 pymupdf>=1.23
 pillow>=9.0
+segno>=1.5

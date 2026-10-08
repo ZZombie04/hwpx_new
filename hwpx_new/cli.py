@@ -110,6 +110,34 @@ def build_parser():
     p.add_argument('--skip', default='1', help='점검에서 뺄 쪽(쉼표, 기본: 표지 1쪽)')
     p.add_argument('--colors', default='#000000,#FFFFFF,#C00000', help='허용 글자색(쉼표)')
 
+    p.add_argument('--strict', action='store_true', help='오류가 있으면 종료 코드 1')
+
+    p = sub.add_parser('gongmun', help='공문(기안문·시행문) 만들기: 공문 서식 + 내용 명세(JSON) → HWPX')
+    p.add_argument('spec', help='공문 명세 JSON 파일(examples/gongmun_spec.json 참고)')
+    p.add_argument('-o', '--out', required=True, help='결과 HWPX 경로')
+    p.add_argument('--check', action='store_true', help='PDF 로 바꿔 조판 점검(결재란 위치 포함)까지')
+
+    p = sub.add_parser('compose', help='정돈 조판: 서식 + 명세(JSON) → 계획서·안내문 HWPX(Ⅰ→■→❍→- 체계)')
+    p.add_argument('spec', help='조판 명세 JSON 파일(examples/compose_spec.json 참고)')
+    p.add_argument('-o', '--out', required=True)
+    p.add_argument('--check', action='store_true')
+
+    p = sub.add_parser('patch', help='사용자가 손본 HWPX 를 손본 그대로 두고 글로 찾은 곳만 고치기(ops JSON)')
+    p.add_argument('src')
+    p.add_argument('ops', help='고칠 내용 JSON 파일(examples/patch_ops.json 참고)')
+    p.add_argument('-o', '--out', required=True)
+    p.add_argument('--style', choices=['plan', 'gongmun'], default='plan', help='새로 넣는 문단 모양(계획서/공문)')
+    p.add_argument('--check', action='store_true')
+
+    p = sub.add_parser('replace', help='이름·날짜 등 문자열만 바꾸기(나머지 파일 내용은 바이트 그대로)')
+    p.add_argument('src')
+    p.add_argument('-o', '--out', required=True)
+    p.add_argument('--pair', action='append', required=True, help='"옛 글=>새 글" (여러 번 가능)')
+
+    p = sub.add_parser('diff', help='두 HWPX 의 글 차이와 한글 저장 여부 확인(사용자가 손본 곳 찾기)')
+    p.add_argument('a')
+    p.add_argument('b')
+
     p = sub.add_parser('preview', help='PDF 한 쪽을 PNG 로 저장')
     p.add_argument('pdf')
     p.add_argument('--page', type=int, default=1)
@@ -196,11 +224,44 @@ def _doctor_hancom():
     return 1
 
 
+def _check(hwpx):
+    """HWPX → PDF → 조판 점검(오류가 있으면 1)."""
+    from . import layout_qa
+    print('조판 점검…')
+    return layout_qa.main([hwpx, '--strict'])
+
+
 def _run(a, ap):
     if a.cmd == 'qa':
         from . import layout_qa
-        argv = [a.pdf, '--skip', a.skip, '--colors', a.colors] + (['-o', a.out] if a.out else [])
+        argv = [a.pdf, '--skip', a.skip, '--colors', a.colors] + (['-o', a.out] if a.out else []) + \
+            (['--strict'] if a.strict else [])
         return layout_qa.main(argv)
+    if a.cmd == 'gongmun':
+        from .gongmun import build
+        print('HWPX:', build(a.spec, a.out))
+        return _check(a.out) if a.check else 0
+    if a.cmd == 'compose':
+        from .spec import build
+        print('HWPX:', build(a.spec, a.out))
+        return _check(a.out) if a.check else 0
+    if a.cmd == 'patch':
+        from .patch import patch
+        for line in patch(a.src, a.ops, a.out, style=a.style):
+            print(' -', line)
+        print('HWPX:', a.out)
+        return _check(a.out) if a.check else 0
+    if a.cmd == 'replace':
+        from .patch import replace_text_zip
+        pairs = [tuple(x.split('=>', 1)) for x in a.pair]
+        for k, n in replace_text_zip(a.src, a.out, pairs).items():
+            print(f' - "{k}": 본문 {n}곳')
+        print('HWPX:', a.out)
+        return 0
+    if a.cmd == 'diff':
+        from .patch import diff_report
+        print(diff_report(a.a, a.b))
+        return 0
     if a.cmd == 'doctor':
         rc = _doctor()
         if a.hancom:

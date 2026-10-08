@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hwpx-new"
-version = "2.1.0"
+version = "2.2.0"
 description = "한글(HWPX) 서식을 분석해 같은 서식의 새 문서(HWPX + PDF)를 만들어 주는 도구 · CLI · MCP · AI 스킬"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -15,6 +15,7 @@ dependencies = [
   "lxml>=4.9",
   "pymupdf>=1.23",
   "pillow>=9.0",
+  "segno>=1.5",
 ]
 
 [project.scripts]

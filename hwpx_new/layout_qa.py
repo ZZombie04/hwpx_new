@@ -41,6 +41,8 @@ def extract(pdf, out_dir, dpi=96):
                 text = ''.join(c['c'] for c in chars)
                 lead = len(text) - len(text.lstrip())
                 chars = chars[lead:]
+                while chars and not chars[-1]['c'].strip():     # 줄 끝 빈칸은 글자가 아니다(한글은 줄 끝 빈칸을 여백 밖에 둠)
+                    chars.pop()
                 text = text.strip()
                 # 줄머리 기호 다음 첫 글자의 x(묶음 빈칸은 PDF 글자로 나오지 않음)
                 tx = None
@@ -53,7 +55,8 @@ def extract(pdf, out_dir, dpi=96):
                 s0 = spans[0]
                 lines.append({
                     'text': text, 'x0': round(chars[0]['bbox'][0], 2) if chars else round(s0['bbox'][0], 2),
-                    'y0': round(min(s['bbox'][1] for s in spans), 2), 'x1': round(max(s['bbox'][2] for s in spans), 2),
+                    'y0': round(min(s['bbox'][1] for s in spans), 2),
+                    'x1': round(chars[-1]['bbox'][2], 2) if chars else round(max(s['bbox'][2] for s in spans), 2),
                     'y1': round(max(s['bbox'][3] for s in spans), 2), 'tx': tx,
                     'size': round(s0['size'], 1), 'font': s0['font'],
                     'colors': sorted({'#%06X' % s['color'] for s in spans}),
@@ -113,8 +116,13 @@ function inTable(p, l){
   // 위아래 가로선 사이(좌우 바깥선이 없는 표)
   const above=p.hlines.some(h=>h[1]<=l.y0+1 && h[1]>l.y0-40 && h[0]<=cx && h[2]>=cx);
   const below=p.hlines.some(h=>h[1]>=l.y1-1 && h[1]<l.y1+40 && h[0]<=cx && h[2]>=cx);
-  return above&&below;
+  if(above&&below) return true;
+  // 바깥 세로선이 없는 표의 높은 칸: 한쪽 세로선 + 위아래 가로선(150pt 안)
+  const far_above=p.hlines.some(h=>h[1]<=l.y0+1 && h[1]>l.y0-150 && h[0]<=cx && h[2]>=cx);
+  const far_below=p.hlines.some(h=>h[1]>=l.y1-1 && h[1]<l.y1+150 && h[0]<=cx && h[2]>=cx);
+  return (left||right) && far_above && far_below;
 }
+const LINK=/https?:\/\/|www\./, LINK_COLORS=['#0000FF','#0563C1'];
 function marker(t){ if(/^- ?\d+ ?-$/.test(t)) return null; const m=t.match(/^(■|❍|※|·|-)/); return m?m[1]:null; }
 function mode(arr){ const c={}; arr.forEach(x=>c[x]=(c[x]||0)+1); return +Object.entries(c).sort((a,b)=>b[1]-a[1])[0][0]; }
 function runChecks(){
@@ -122,7 +130,10 @@ function runChecks(){
   const pages=DATA.filter(p=>!CFG.skip.includes(p.n));
   const allow=CFG.colors.map(c=>c.toUpperCase());
   // 1 글자색
-  pages.forEach(p=>p.lines.forEach(l=>{const bad=l.colors.filter(c=>!allow.includes(c)); if(bad.length) add(p,l,'색',`허용되지 않은 글자색 ${bad.join(',')}`);}));
+  pages.forEach(p=>p.lines.forEach(l=>{const link=LINK.test(l.text);
+    const bad=l.colors.filter(c=>!allow.includes(c) && !(link && LINK_COLORS.includes(c)));   // 누리집 주소의 링크 색은 허용
+    if(bad.length) add(p,l,'색',`허용되지 않은 글자색 ${bad.join(',')}`);}));
+  (CFG.extra||[]).forEach(x=>issues.push(x));
   // 단계 줄머리 수집(표 밖 본문만)
   const groups={};
   pages.forEach(p=>p.lines.forEach((l,i)=>{ if(inTable(p,l)) return; const m=marker(l.text); if(!m) return;
@@ -226,14 +237,31 @@ def main(argv=None):
     ap.add_argument('--colors', default='#000000,#FFFFFF,#C00000')
     ap.add_argument('--margin', type=float, default=40.0, help='본문 영역 판정 여백(pt)')
     ap.add_argument('--min-fill', type=float, default=0.35)
+    ap.add_argument('--strict', action='store_true', help='오류가 하나라도 있으면 종료 코드 1(자동 반복 작업용)')
     a = ap.parse_args(argv)
     out = a.out or os.path.splitext(a.pdf)[0] + '_점검'
     if os.path.isdir(out):
         shutil.rmtree(out)
     os.makedirs(out)
+    if a.pdf.lower().endswith('.hwpx'):          # HWPX 를 주면 먼저 PDF 로(한글 → LibreOffice → 내장 순)
+        from .pdf import convert
+        pdf = os.path.join(out, os.path.splitext(os.path.basename(a.pdf))[0] + '.pdf')
+        engine, log = convert(a.pdf, pdf)
+        if not engine:
+            print('PDF 변환 실패:', '; '.join(log))
+            return 2
+        print(f'PDF({engine}):', pdf)
+        a.pdf = pdf
     pages = extract(a.pdf, out)
+    extra = []
+    try:                                          # 공문: 결재란이 홀로 마지막 쪽에 남았는지
+        from .gongmun import check_pdf
+        extra = [{'page': len(pages), 'kind': '결재란', 'msg': m, 'level': 'err', 'box': None, 'text': ''}
+                 for m in check_pdf(a.pdf)]
+    except Exception:  # noqa
+        pass
     cfg = {'skip': [int(x) for x in a.skip.split(',') if x.strip()], 'colors': a.colors.split(','),
-           'margin': a.margin, 'minFill': a.min_fill, 'scale': 96 / 72}
+           'margin': a.margin, 'minFill': a.min_fill, 'scale': 96 / 72, 'extra': extra}
     html = os.path.join(out, 'report.html')
     with open(html, 'w', encoding='utf-8') as f:
         f.write(HTML.replace('__DATA__', json.dumps(pages, ensure_ascii=False)).replace('__CFG__', json.dumps(cfg)))
@@ -260,12 +288,17 @@ def main(argv=None):
               'report.html 을 브라우저로 열면 같은 점검 결과를 볼 수 있습니다:', html)
     print((r.stdout or '').strip() or (r.stderr or '').strip())
     res = os.path.join(out, 'qa_result.json')
+    errs = 0
     if os.path.exists(res):
         qa = json.load(open(res, encoding='utf-8'))
         for x in qa[:80]:
             print(f"  {x['page']}쪽 [{x['kind']}] {x['msg']} — {x['text']}")
+        errs = sum(1 for x in qa if x.get('level') != 'warn')
+        print(f'결과: 오류 {errs}, 주의 {len(qa) - errs} (오류 0 이 될 때까지 고친 뒤, 쪽 그림도 눈으로 확인)')
         print('보고서:', html)
-    return 0 if r.returncode == 0 else r.returncode
+    if r.returncode != 0:
+        return r.returncode
+    return 1 if (a.strict and errs) else 0
 
 
 if __name__ == '__main__':

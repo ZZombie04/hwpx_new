@@ -152,7 +152,7 @@ def test_setup_registers_clients_into_fake_home():
 def test_skill_text_has_front_matter():
     from hwpx_new import setup_cmd
     t = setup_cmd.skill_text()
-    assert t.startswith('---\nname: hwpx-new') and '## 1. 서식을 분석한다' in t
+    assert t.startswith('---\nname: hwpx-new') and '## 0. 작업 고르기' in t and 'gongmun' in t
 
 
 def test_hancom_powershell_scripts_parse():

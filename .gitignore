@@ -10,3 +10,4 @@ _sweep.py
 /output/
 .venv/
 _photo_sheet.png
+.claude/
