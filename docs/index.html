@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hwpx_new — 한글 문서, 말로 만드세요</title>
+<meta name="description" content="한글(HWPX) 서식 재현·계획서·공문·50쪽 연구학교 결과보고서까지. Claude·ChatGPT·Gemini·Grok 어떤 AI 든 같은 품질의 HWPX와 PDF를 만드는 무료 오픈소스 도구(CLI·MCP·AI 스킬).">
+<meta name="keywords" content="한글, HWPX, HWP, 한글 문서 자동화, 연구학교 결과보고서, 결과보고서, 공문, 계획서, AI, ChatGPT, Claude, Gemini, MCP, 교사, 교육청">
+<link rel="canonical" href="https://zzombie04.github.io/hwpx_new/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="hwpx_new — 한글 문서, 말로 만드세요">
+<meta property="og:description" content="서식 재현·계획서·공문·연구학교 결과보고서까지. 어떤 AI 든 같은 품질의 한글(HWPX)+PDF.">
+<meta property="og:url" content="https://zzombie04.github.io/hwpx_new/">
+<meta property="og:image" content="https://zzombie04.github.io/hwpx_new/img/og.png">
+<meta property="og:locale" content="ko_KR">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%238C1C3C'/%3E%3Ctext x='32' y='44' font-size='34' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='700'%3E한%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"hwpx_new","description":"한글(HWPX) 문서를 AI로 만드는 오픈소스 도구: 서식 재현, 정돈 조판, 공문, 장편 보고서(차례·통계·도표 자동)","codeRepository":"https://github.com/ZZombie04/hwpx_new","programmingLanguage":"Python","license":"https://opensource.org/licenses/MIT","inLanguage":"ko"}
+</script>
+<style>
+:root{
+  --ink:#111113; --sub:#55575d; --mute:#86888f; --line:#e4e5e8; --bg:#ffffff; --bg2:#f5f5f7; --accent:#8C1C3C; --accent-d:#6e1530;
+  --pale:#f6ecef; --radius:20px; --max:1120px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word;line-height:1.6}
+a{color:inherit}
+img{max-width:100%;display:block}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+/* 상단 막대 */
+.nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.82);backdrop-filter:saturate(180%) blur(18px);-webkit-backdrop-filter:saturate(180%) blur(18px);border-bottom:1px solid rgba(0,0,0,.06)}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:56px}
+.brand{font-weight:800;letter-spacing:-.02em;text-decoration:none;font-size:18px}
+.brand b{color:var(--accent)}
+.nav ul{display:flex;gap:26px;list-style:none;margin:0;padding:0;font-size:14px}
+.nav ul a{text-decoration:none;color:var(--sub)}
+.nav ul a:hover{color:var(--ink)}
+.nav .gh{font-size:14px;font-weight:600;text-decoration:none;padding:7px 14px;border-radius:999px;background:var(--ink);color:#fff}
+/* 첫 화면 */
+.hero{padding:96px 0 40px;text-align:center;overflow:hidden}
+.eyebrow{display:inline-block;font-size:14px;font-weight:600;color:var(--accent);background:var(--pale);padding:6px 14px;border-radius:999px;margin-bottom:22px}
+.hero h1{font-size:clamp(40px,7.4vw,84px);line-height:1.08;letter-spacing:-.035em;margin:0 0 22px;font-weight:800}
+.hero h1 em{font-style:normal;color:var(--accent)}
+.hero p.lead{font-size:clamp(17px,2.1vw,22px);color:var(--sub);max-width:760px;margin:0 auto 34px;line-height:1.55}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:16px;padding:14px 24px;border-radius:999px;text-decoration:none;transition:transform .2s ease,background .2s}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-d);transform:translateY(-1px)}
+.btn.ghost{background:var(--bg2);color:var(--ink)}
+.btn.ghost:hover{background:#ebebee}
+.ais{margin-top:26px;font-size:14px;color:var(--mute)}
+.ais span{display:inline-block;margin:4px 6px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;color:var(--sub)}
+.fan{position:relative;height:clamp(300px,52vw,600px);margin:64px auto 0;max-width:980px;perspective:1600px}
+.fan img{position:absolute;top:0;left:50%;width:clamp(200px,33vw,370px);border-radius:10px;box-shadow:0 30px 60px -20px rgba(0,0,0,.28),0 0 0 1px rgba(0,0,0,.06);
+  transform-origin:50% 100%;transition:transform 1.1s cubic-bezier(.2,.8,.2,1)}
+.fan img:nth-child(1){transform:translateX(-50%) rotate(0deg);z-index:3}
+.fan img:nth-child(2){transform:translateX(-50%) rotate(0deg);z-index:2}
+.fan img:nth-child(3){transform:translateX(-50%) rotate(0deg);z-index:1}
+.fan.open img:nth-child(1){transform:translateX(-50%) translateY(0) rotate(0deg)}
+.fan.open img:nth-child(2){transform:translateX(-118%) translateY(36px) rotate(-7deg)}
+.fan.open img:nth-child(3){transform:translateX(18%) translateY(36px) rotate(7deg)}
+/* 숫자 띠 */
+.strip{background:var(--bg2);padding:48px 0;margin-top:40px}
+.strip .grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;text-align:center}
+.strip b{display:block;font-size:clamp(28px,4vw,44px);letter-spacing:-.03em;color:var(--ink);font-weight:800}
+.strip small{color:var(--sub);font-size:14px}
+/* 공통 절 */
+section{padding:110px 0}
+.kicker{font-size:15px;font-weight:700;color:var(--accent);margin-bottom:10px}
+h2{font-size:clamp(32px,5vw,56px);line-height:1.12;letter-spacing:-.03em;margin:0 0 18px;font-weight:800}
+p.desc{font-size:clamp(17px,1.8vw,20px);color:var(--sub);max-width:720px;margin:0 0 48px}
+.center{text-align:center}
+.center p.desc{margin-left:auto;margin-right:auto}
+/* 기능 카드 */
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.card{background:var(--bg2);border-radius:var(--radius);padding:34px;display:flex;flex-direction:column;gap:14px;overflow:hidden;min-height:330px}
+.card h3{font-size:24px;margin:0;letter-spacing:-.02em}
+.card p{margin:0;color:var(--sub)}
+.card code{font-size:13px;background:#fff;border:1px solid var(--line);padding:3px 8px;border-radius:8px;color:var(--ink);align-self:flex-start}
+.card .shot{margin-top:auto;display:flex;gap:10px;justify-content:center}
+.card .shot img{width:46%;border-radius:8px;box-shadow:0 12px 30px -12px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.05)}
+.card.wide{grid-column:1/-1;background:var(--ink);color:#fff;min-height:auto}
+.card.wide p{color:#c8c9ce}
+.card.wide code{background:#1d1d20;border-color:#2c2c30;color:#fff}
+.tag{font-size:12px;font-weight:700;color:#fff;background:var(--accent);padding:3px 9px;border-radius:999px;align-self:flex-start}
+/* 붙어 있는 화면(스크롤로 장면 전환) */
+.story{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;align-items:start}
+.steps .step{min-height:68vh;display:flex;flex-direction:column;justify-content:center;opacity:.28;transition:opacity .5s}
+.steps .step.on{opacity:1}
+.steps .num{font-size:14px;font-weight:800;color:var(--accent);letter-spacing:.04em}
+.steps h3{font-size:clamp(24px,3vw,34px);letter-spacing:-.025em;margin:8px 0 12px;line-height:1.25}
+.steps p{color:var(--sub);margin:0 0 14px;font-size:17px}
+.stage{position:sticky;top:96px;height:calc(100vh - 140px);display:flex;align-items:center;justify-content:center}
+.stage .frame{position:relative;width:min(100%,460px);aspect-ratio:210/297}
+.stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;border-radius:10px;opacity:0;transform:scale(.97) translateY(10px);
+  transition:opacity .6s ease,transform .8s cubic-bezier(.2,.8,.2,1);box-shadow:0 30px 60px -24px rgba(0,0,0,.3),0 0 0 1px rgba(0,0,0,.06);background:#fff}
+.stage img.on{opacity:1;transform:none}
+pre{margin:0;max-width:100%;background:#16161a;color:#e9e9ee;border-radius:14px;padding:18px 20px;overflow-x:auto;font:13.5px/1.65 ui-monospace,SFMono-Regular,Consolas,"D2Coding","Pretendard Variable","Malgun Gothic",monospace}
+pre .c{color:#8b8d96}
+pre .k{color:#ff9db6}
+pre .s{color:#9fe0b4}
+.check{margin-top:18px;font:13.5px/1.7 ui-monospace,SFMono-Regular,Consolas,"Pretendard Variable","Malgun Gothic",monospace;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.check .e{color:#b42318}.check .w{color:#9a6700}.check .ok{color:#067647;font-weight:700}
+/* 어떤 AI 든(어두운 절) */
+.dark{background:#000;color:#f5f5f7}
+.dark p.desc{color:#a1a1a6}
+.ways{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.way{background:#141416;border:1px solid #232327;border-radius:var(--radius);padding:28px}
+.way h3{margin:0 0 6px;font-size:21px}
+.way .who{color:#a1a1a6;font-size:14px;margin-bottom:16px}
+.way pre{background:#0b0b0d;border:1px solid #232327}
+.way p{color:#c8c9ce;font-size:15px;margin:14px 0 0}
+/* 설치 */
+.install{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;counter-reset:s}
+.inst{background:var(--bg2);border-radius:var(--radius);padding:26px;position:relative}
+.inst:before{counter-increment:s;content:counter(s);position:absolute;top:22px;right:24px;font-weight:800;font-size:44px;color:#dcdde1;line-height:1}
+.inst h3{margin:0 0 8px;font-size:19px}
+.inst p{color:var(--sub);font-size:15px;margin:0 0 14px}
+.copy{position:relative}
+.copy pre{white-space:pre-wrap;word-break:break-all;padding-right:64px}
+.copy button{position:absolute;top:8px;right:8px;border:0;border-radius:8px;background:#2a2a30;color:#fff;font:600 12px/1 inherit;padding:7px 10px;cursor:pointer}
+.copy button:hover{background:#3a3a42}
+/* 갤러리 */
+.gallery{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.gallery figure{margin:0}
+.gallery img{border-radius:8px;box-shadow:0 14px 34px -16px rgba(0,0,0,.28),0 0 0 1px rgba(0,0,0,.06);background:#fff;transition:transform .35s cubic-bezier(.2,.8,.2,1)}
+.gallery img:hover{transform:translateY(-6px)}
+.gallery figcaption{font-size:13px;color:var(--sub);margin-top:10px;text-align:center}
+/* 질문 */
+.faq{max-width:820px;margin:0 auto}
+details{border-bottom:1px solid var(--line);padding:20px 0}
+summary{cursor:pointer;font-weight:700;font-size:18px;list-style:none;display:flex;justify-content:space-between;gap:16px}
+summary::-webkit-details-marker{display:none}
+summary:after{content:"+";color:var(--mute);font-weight:400;font-size:24px;line-height:1}
+details[open] summary:after{content:"−"}
+details p{color:var(--sub);margin:12px 0 0}
+footer{background:var(--bg2);padding:56px 0;color:var(--sub);font-size:14px}
+footer .wrap{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+footer a{color:var(--ink);font-weight:600}
+/* 나타나기 */
+.reveal{opacity:0;transform:translateY(28px);transition:opacity .9s ease,transform 1s cubic-bezier(.2,.8,.2,1)}
+.reveal.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}.reveal{opacity:1;transform:none}}
+@media (max-width:900px){
+  .nav ul{display:none}
+  .strip .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cards,.ways,.install{grid-template-columns:minmax(0,1fr)}
+  .story{grid-template-columns:minmax(0,1fr)}
+  .card.wide code{white-space:normal}
+  .stage{display:none}
+  .steps .step{min-height:auto;opacity:1;padding:24px 0}
+  .steps .step .mobile-shot{display:block!important;margin-top:14px;max-width:340px}
+  .gallery{grid-template-columns:repeat(2,minmax(0,1fr))}
+  section{padding:80px 0}
+}
+@media (max-width:480px){.wrap{padding:0 16px}.hero{padding-top:64px}.card{padding:24px}.fan{height:300px}}
+</style>
+</head>
+<body>
+<nav class="nav"><div class="wrap">
+  <a class="brand" href="#">hwpx<b>_new</b></a>
+  <ul><li><a href="#what">기능</a></li><li><a href="#report">보고서</a></li><li><a href="#ai">AI 연결</a></li><li><a href="#install">설치</a></li><li><a href="#faq">질문</a></li></ul>
+  <a class="gh" href="https://github.com/ZZombie04/hwpx_new">GitHub</a>
+</div></nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">무료 · 오픈소스 · 2.3.0 장편 보고서 엔진</div>
+    <h1>한글 문서,<br><em>말로</em> 만드세요.</h1>
+    <p class="lead">서식 그대로 새 문서, 정돈된 계획서, 공문, 그리고 <b>차례·통계·도표가 맞춰진 50쪽 연구학교 결과보고서</b>까지.
+      어떤 AI 를 쓰든 같은 품질의 <b>HWPX</b> 와 <b>PDF</b> 가 나옵니다.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/ZZombie04/hwpx_new">GitHub 에서 받기 →</a>
+      <a class="btn ghost" href="#install">3분 설치</a>
+    </div>
+    <div class="ais">함께 쓰는 AI <span>Claude</span><span>ChatGPT · Codex</span><span>Gemini</span><span>Grok</span><span>Cursor</span><span>Antigravity</span></div>
+    <div class="fan" id="fan">
+      <img src="img/report_cover.jpg" alt="연구학교 결과보고서 예시 표지" width="827" height="1169">
+      <img src="img/report_summary.jpg" alt="연구 요약 쪽: 연구 문제별 결과 표와 효과 크기 카드" width="827" height="1169" loading="lazy">
+      <img src="img/report_results.jpg" alt="결과 분석 쪽: 사전·사후 비교 표와 효과 크기 도표" width="827" height="1169" loading="lazy">
+    </div>
+  </div>
+</header>
+
+<div class="strip"><div class="wrap grid">
+  <div class="reveal"><b>87%</b><small>실제 서식 54종 블록 재현</small></div>
+  <div class="reveal"><b>12종</b><small>보고서 도표 자동</small></div>
+  <div class="reveal"><b>7종</b><small>통계 검정·기술 통계 내장</small></div>
+  <div class="reveal"><b>22개</b><small>MCP 도구</small></div>
+  <div class="reveal"><b>0원</b><small>MIT 라이선스</small></div>
+</div></div>
+
+<section id="what"><div class="wrap">
+  <div class="kicker reveal">무엇을 만들 수 있나요</div>
+  <h2 class="reveal">서식은 도구가,<br>글은 AI 가.</h2>
+  <p class="desc reveal">AI 가 모양을 흉내 내면 모델마다 결과가 달라집니다. hwpx_new 는 글꼴·간격·표 테두리·번호를 도구가 정하고 AI 는 내용만 씁니다. 그래서 가벼운 모델로 해도 결과가 같습니다.</p>
+  <div class="cards">
+    <div class="card reveal">
+      <h3>서식 그대로 새 문서</h3>
+      <p>계획서를 결과보고서로, 작년 안내문을 올해로. 표지 띠·표 색·글머리 기호까지 원본 서식을 복제합니다.</p>
+      <code>hwpx-new build 서식.hwpx 내용.md</code>
+      <div class="shot"><img src="img/template_p1.png" alt="원본 서식" loading="lazy"><img src="img/result_p1.png" alt="같은 서식의 결과보고서" loading="lazy"></div>
+    </div>
+    <div class="card reveal">
+      <h3>정돈된 계획서 · 공문</h3>
+      <p>산만한 서식을 Ⅰ→■→❍→- 체계로 새로 짜고, 기안문·겉공문은 번호 체계·QR·붙임·결재란 위치까지 맞춥니다.</p>
+      <code>hwpx-new compose 명세.json --check</code>
+      <div class="shot"><img src="img/result_p2.png" alt="정돈 조판 결과" loading="lazy"><img src="img/result_photos.png" alt="사진 대지가 들어간 결과" loading="lazy"></div>
+    </div>
+    <div class="card wide reveal">
+      <span class="tag">NEW 2.3.0</span>
+      <h3>연구학교 결과보고서 · 연구보고서 · 논문형 보고서</h3>
+      <p>원고(report.txt) 하나로 표지, 장 표지, 차례·표 차례(실제 쪽수), 표·그림 번호, 사전·사후 t검정과 효과 크기, 12종 도표, 참고문헌 점검까지. 서식 파일이 없어도 됩니다.</p>
+      <code>hwpx-new report init 내보고서 &nbsp;→&nbsp; hwpx-new report 내보고서/report.txt</code>
+    </div>
+  </div>
+</div></section>
+
+<section id="report" style="background:var(--bg2)"><div class="wrap">
+  <div class="kicker reveal">장편 보고서 엔진</div>
+  <h2 class="reveal">원고 한 장이<br>20쪽 보고서가 되기까지.</h2>
+  <p class="desc reveal">아래 그림은 모두 예시 원고(가상 학교 ‘가온중학교’)를 한글 2024 로 조판한 실제 쪽입니다. 다운로드한 폴더에서 같은 결과를 그대로 만들 수 있습니다.</p>
+  <div class="story">
+    <div class="steps">
+      <div class="step" data-shot="0">
+        <div class="num">STEP 1</div>
+        <h3>예시를 복사해 내용만 바꿉니다</h3>
+        <p><code>report init</code> 이 바로 빌드되는 원고·자료(CSV)·사진을 만들어 줍니다. 구성과 표시는 그대로 두고 학교·주제·자료만 바꾸면 됩니다.</p>
+        <pre><span class="k">@ch</span> Ⅴ | 결과 분석 | 세 연구 문제에 대한 답 | photos/ch5.jpg
+<span class="k">@sec</span> 2 | 연구 문제 ①: 교사의 수업 성찰은 높아졌는가</pre>
+        <img class="mobile-shot" style="display:none" src="img/report_cover.jpg" alt="" loading="lazy">
+      </div>
+      <div class="step" data-shot="1">
+        <div class="num">STEP 2</div>
+        <h3>숫자는 AI 가 아니라 도구가 계산합니다</h3>
+        <p>원고에 계산 명령을 쓰면 조판할 때마다 자료 파일에서 다시 계산해 본문에 넣습니다. 손으로 옮겨 적다 생기는 불일치가 사라집니다.</p>
+        <pre><span class="k">@stats</span> paired data.csv --pre 사전 --post 사후 --prefix ref
+평균은 <span class="s">{{ref.m0}}</span>점에서 <span class="s">{{ref.m1}}</span>점으로 올랐다
+(t(<span class="s">{{ref.df}}</span>) = <span class="s">{{ref.t}}</span>, p <span class="s">{{ref.p}}</span>, d = <span class="s">{{ref.d}}</span>).</pre>
+        <img class="mobile-shot" style="display:none" src="img/report_summary.jpg" alt="" loading="lazy">
+      </div>
+      <div class="step" data-shot="2">
+        <div class="num">STEP 3</div>
+        <h3>차례 쪽수는 한글이 놓은 자리로</h3>
+        <p>한글로 PDF 를 만들어 제목이 실제로 놓인 쪽을 읽고, 쪽이 바뀌지 않을 때까지 다시 조판합니다. 쪽을 넘는 표는 행 단위로 나누고 머리행을 반복합니다.</p>
+        <img class="mobile-shot" style="display:none" src="img/report_toc.jpg" alt="" loading="lazy">
+      </div>
+      <div class="step" data-shot="3">
+        <div class="num">STEP 4</div>
+        <h3>도표는 자료만 쓰면 같은 디자인으로</h3>
+        <p>막대·묶음·효과 크기·산점도·누적·흐름·절차·순환 등 12종. 인쇄해도 읽히는 글자 크기와 300dpi 로 넣습니다.</p>
+        <pre><span class="k">@chart</span> dose | 공개·참관 횟수와 성찰 변화 | type=scatter | data=data.csv | x=공개참관횟수 | y=성찰변화
+<span class="k">@end</span></pre>
+        <img class="mobile-shot" style="display:none" src="img/report_results2.jpg" alt="" loading="lazy">
+      </div>
+      <div class="step" data-shot="4">
+        <div class="num">STEP 5</div>
+        <h3>심사자가 먼저 짚을 실수를 미리</h3>
+        <p>참고문헌에 없는 인용, 틀린 요일, 풀리지 않은 참조, 근거보다 큰 말, 검정 없는 ‘유의’, 쪽수 초과를 찾아 줍니다.</p>
+        <div class="check">[오류] 참고문헌에 없는 인용: "홍길동, 2020"<br>[오류] 요일이 맞지 않음: 2026. 11. 5.(수) → 목요일<br><span class="w">[주의] 근거보다 큰 말 "입증"</span><br><span class="ok">결과: 오류 0, 주의 0 ✓</span></div>
+        <img class="mobile-shot" style="display:none" src="img/report_results.jpg" alt="" loading="lazy">
+      </div>
+    </div>
+    <div class="stage"><div class="frame">
+      <img class="on" src="img/report_cover.jpg" alt="표지" loading="lazy">
+      <img src="img/report_summary.jpg" alt="연구 요약" loading="lazy">
+      <img src="img/report_toc.jpg" alt="차례" loading="lazy">
+      <img src="img/report_results2.jpg" alt="도표가 들어간 결과 쪽" loading="lazy">
+      <img src="img/report_results.jpg" alt="결과 표와 효과 크기" loading="lazy">
+    </div></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="kicker reveal center">예시 보고서 둘러보기</div>
+  <h2 class="reveal center">한 번의 명령으로 나온 쪽들.</h2>
+  <p class="desc reveal center">표지 · 연구 요약 · 장 표지 · 결과 분석 · 실행 사진 · 결론. 학교와 인물, 수치는 가상이고 사진은 생성형 AI 예시입니다.</p>
+  <div class="gallery">
+    <figure class="reveal"><img src="img/report_cover.jpg" alt="표지" loading="lazy"><figcaption>표지</figcaption></figure>
+    <figure class="reveal"><img src="img/report_summary.jpg" alt="연구 요약" loading="lazy"><figcaption>연구 요약 · 숫자 카드</figcaption></figure>
+    <figure class="reveal"><img src="img/report_ch1.jpg" alt="장 표지" loading="lazy"><figcaption>장 표지 · 연혁 도표</figcaption></figure>
+    <figure class="reveal"><img src="img/report_design.jpg" alt="연구 설계" loading="lazy"><figcaption>검증 계획 · 측정 도구</figcaption></figure>
+    <figure class="reveal"><img src="img/report_photos.jpg" alt="실행 사진" loading="lazy"><figcaption>실행 · 사진 대지</figcaption></figure>
+    <figure class="reveal"><img src="img/report_results.jpg" alt="결과" loading="lazy"><figcaption>사전·사후 비교 · 효과 크기</figcaption></figure>
+    <figure class="reveal"><img src="img/report_results2.jpg" alt="결과 도표" loading="lazy"><figcaption>경력별 · 산점도 · 목소리</figcaption></figure>
+    <figure class="reveal"><img src="img/report_end.jpg" alt="결론" loading="lazy"><figcaption>제언 · 순환 모형</figcaption></figure>
+  </div>
+</div></section>
+
+<section id="ai" class="dark"><div class="wrap">
+  <div class="kicker reveal" style="color:#ff9db6">어떤 AI 든</div>
+  <h2 class="reveal">Claude 든 ChatGPT 든<br>같은 결과.</h2>
+  <p class="desc reveal">지침은 한 원본에서 AGENTS.md · CLAUDE.md · GEMINI.md · Copilot · Cursor 용으로 만들어지고, 도구는 표준 MCP 로 연결됩니다. 도구를 못 쓰는 웹 채팅 AI 도 프롬프트 한 장으로 같은 원고를 씁니다.</p>
+  <div class="ways">
+    <div class="way reveal">
+      <h3>MCP 연결</h3><div class="who">Claude Desktop · Claude Code · Cursor · Codex · Gemini CLI</div>
+      <pre>hwpx-new setup</pre>
+      <p>설치된 AI 프로그램을 찾아 연결합니다. <code style="color:#fff">hwpx_report_build</code> · <code style="color:#fff">hwpx_stats</code> 등 22개 도구가 생깁니다.</p>
+    </div>
+    <div class="way reveal">
+      <h3>폴더 지침</h3><div class="who">Claude Code · Codex · Gemini CLI · Grok · Antigravity</div>
+      <pre>"연구학교 결과보고서
+ 써 줘. 자료는 data.csv"</pre>
+      <p>저장소 폴더를 열고 말하면 AI 가 지침대로 원고 작성 → 빌드 → 점검 → 쪽 확인까지 스스로 합니다.</p>
+    </div>
+    <div class="way reveal">
+      <h3>웹 채팅 AI</h3><div class="who">ChatGPT · Gemini · Claude · Grok 웹</div>
+      <pre>hwpx-new report prompt "요청" \
+  --data 자료.csv -o 프롬프트.txt</pre>
+      <p>프롬프트를 붙여 넣고 받은 원고를 저장해 <code style="color:#fff">hwpx-new report</code> 를 실행하면 끝.</p>
+    </div>
+  </div>
+</div></section>
+
+<section id="install"><div class="wrap">
+  <div class="kicker reveal">설치</div>
+  <h2 class="reveal">3분이면 준비됩니다.</h2>
+  <p class="desc reveal">Windows · macOS · Linux. 한글이 설치된 Windows 에서는 한글로 실제 PDF 를 만들고, 한글이 없으면 내장 렌더러가 근사 PDF 를 만듭니다(HWPX 는 같음).</p>
+  <div class="install">
+    <div class="inst reveal"><h3>파이썬 설치</h3><p>3.9 이상. Windows 는 설치할 때 “Add python.exe to PATH” 체크.</p>
+      <div class="copy"><pre>winget install -e --id Python.Python.3.12</pre><button type="button">복사</button></div></div>
+    <div class="inst reveal"><h3>hwpx_new 설치</h3><p>git 이 없어도 됩니다. 압축 파일을 받아 install.bat 을 더블클릭해도 됩니다.</p>
+      <div class="copy"><pre>pip install https://github.com/ZZombie04/hwpx_new/archive/refs/heads/main.zip</pre><button type="button">복사</button></div></div>
+    <div class="inst reveal"><h3>점검 · 연결 · 예시</h3><p>환경을 점검하고 AI 프로그램에 연결한 뒤 예시 보고서를 만들어 봅니다.</p>
+      <div class="copy"><pre>hwpx-new doctor
+hwpx-new setup
+hwpx-new report init 내보고서
+hwpx-new report 내보고서/report.txt</pre><button type="button">복사</button></div></div>
+  </div>
+</div></section>
+
+<section id="faq" style="background:var(--bg2)"><div class="wrap">
+  <h2 class="reveal center">자주 묻는 질문</h2>
+  <div class="faq">
+    <details><summary>한글이 없어도 되나요?</summary><p>됩니다. HWPX 파일은 똑같이 만들어지고, PDF 는 내장 렌더러가 근사하게 만듭니다. 한글이 있는 Windows 에서는 한글이 직접 PDF 로 저장해 쪽 배치가 가장 정확합니다. 개발은 한글 2024 에서 실측했습니다.</p></details>
+    <details><summary>어떤 AI 를 써야 하나요?</summary><p>아무거나 됩니다. 모양은 도구가 정하고 AI 는 글만 쓰므로 모델에 따른 차이가 적습니다. 숫자는 @stats 계산 명령으로 도구가 계산하므로 가벼운 모델도 통계를 틀리지 않습니다. 가장 가벼운 모델(Claude Haiku)에게 지침만 주고 다른 학교·다른 자료로 맡겨 본 시험에서도 20쪽 보고서를 점검 오류 0 으로 완성했습니다.</p></details>
+    <details><summary>통계를 몰라도 결과보고서를 쓸 수 있나요?</summary><p>자료 파일(CSV·엑셀)의 열 이름만 알면 됩니다. 짝지은 t검정과 효과 크기 d, Welch t검정과 g, 신뢰도 α, 평정자 일치도 κ, 상관 r, 기술 통계, 비율을 계산하고 APA 표기(p &lt; .001)로 본문에 넣습니다.</p></details>
+    <details><summary>AI 가 숫자나 문헌을 지어내면요?</summary><p>지침과 점검기가 막습니다. 수치는 계산 명령으로만, 인용은 참고문헌과 대조하고, 근거보다 큰 말과 검정 없는 ‘유의’를 경고합니다. 지어낸 내용이 있으면 최종 답변에 밝히도록 되어 있습니다.</p></details>
+    <details><summary>제 서식(학교 양식)을 그대로 써야 하는데요.</summary><p>그럴 때는 build 를 씁니다. 서식을 분석해 같은 모양을 복제하고 AI 는 글만 바꿉니다. 사용자가 한글에서 손본 파일은 patch 로 손본 곳을 지키며 고칩니다.</p></details>
+    <details><summary>무료인가요? 학교에서 써도 되나요?</summary><p>MIT 라이선스 오픈소스입니다. 개인·학교·기관 모두 자유롭게 쓰고 고칠 수 있습니다.</p></details>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <div><b style="color:var(--ink)">hwpx_new</b> · MIT · <a href="https://github.com/ZZombie04/hwpx_new">github.com/ZZombie04/hwpx_new</a></div>
+  <div>만든 사람 <a href="https://joo.is/AI%EB%A6%AC%EC%B9%98%EC%8C%A4">리치쌤</a></div>
+</div></footer>
+
+<script>
+(function(){
+  var io = 'IntersectionObserver' in window;
+  // 나타나기
+  var rev = document.querySelectorAll('.reveal');
+  if (io) {
+    var ob = new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');ob.unobserve(e.target);}});},{threshold:.15});
+    rev.forEach(function(el){ob.observe(el);});
+  } else { rev.forEach(function(el){el.classList.add('in');}); }
+  // 첫 화면 펼치기
+  var fan = document.getElementById('fan');
+  setTimeout(function(){ fan.classList.add('open'); }, 250);
+  // 붙어 있는 화면: 단계마다 그림 바꾸기
+  var steps = document.querySelectorAll('.steps .step');
+  var shots = document.querySelectorAll('.stage img');
+  if (io) {
+    var so = new IntersectionObserver(function(es){
+      es.forEach(function(e){
+        if (!e.isIntersecting) return;
+        steps.forEach(function(s){s.classList.toggle('on', s === e.target);});
+        var k = +e.target.getAttribute('data-shot');
+        shots.forEach(function(im, i){im.classList.toggle('on', i === k);});
+      });
+    },{rootMargin:'-45% 0px -45% 0px'});
+    steps.forEach(function(s){so.observe(s);});
+  }
+  steps.length && steps[0].classList.add('on');
+  // 복사 단추
+  document.querySelectorAll('.copy button').forEach(function(b){
+    b.addEventListener('click', function(){
+      var t = b.parentNode.querySelector('pre').innerText;
+      var done = function(){ b.textContent = '복사됨'; setTimeout(function(){ b.textContent = '복사'; }, 1400); };
+      try { navigator.clipboard.writeText(t).then(done, done); } catch (e) { done(); }
+    });
+  });
+})();
+</script>
+</body>
+</html>

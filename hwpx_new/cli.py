@@ -104,7 +104,13 @@ def build_parser():
     p.add_argument('folder')
     p.add_argument('-o', '--out', help='한눈에 보기 이미지 저장 경로(기본: 폴더/_photo_sheet.png)')
 
-    p = sub.add_parser('qa', help='조판 점검(Playwright): 글자색·단계 정렬·내어쓰기·글꼴·여백·겹침·쪽 끝 소제목·빈 쪽 + 문제 위치 스크린숏')
+    for nm, hp in (('report', '장편 보고서(연구학교 결과보고서·논문형): 원고(report.txt) → HWPX+PDF. init·check·guide·prompt'),
+                   ('stats', '보고서용 통계: paired·welch·alpha·kappa·corr·desc·freq → 원고 토큰(@set)'),
+                   ('chart', '보고서용 도표: 명세(JSON) → PNG(막대·묶음·효과 크기·산점도·흐름 등 12종)')):
+        p = sub.add_parser(nm, help=hp, add_help=False)
+        p.add_argument('rest', nargs=argparse.REMAINDER)
+
+    p = sub.add_parser('qa', help='조판 점검: 글자색·단계 정렬·내어쓰기·글꼴·여백·겹침·쪽 끝 소제목·빈 쪽 + 문제 위치 표시 그림')
     p.add_argument('pdf')
     p.add_argument('-o', '--out', help='점검 결과 폴더(기본: PDF이름_점검)')
     p.add_argument('--skip', default='1', help='점검에서 뺄 쪽(쉼표, 기본: 표지 1쪽)')
@@ -151,8 +157,25 @@ def build_parser():
     return ap
 
 
+PASS = {'report': ('report_cmd', 'main'), 'stats': ('stats', 'main'), 'chart': ('charts', 'main')}
+
+
 def main(argv=None):
     _utf8()
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in PASS:              # 자기 인자 해석기를 가진 명령은 그대로 넘긴다
+        import importlib
+        mod, fn = PASS[argv[0]]
+        try:
+            return getattr(importlib.import_module('.' + mod, __package__), fn)(argv[1:]) or 0
+        except SystemExit as e:
+            return e.code if isinstance(e.code, int) else 0
+        except Exception as e:  # noqa
+            print('오류: ' + str(e))
+            if os.environ.get('HWPX_NEW_DEBUG'):
+                import traceback
+                traceback.print_exc()
+            return 1
     ap = build_parser()
     a = ap.parse_args(argv)
     try:
@@ -190,6 +213,15 @@ def _doctor():
         except ImportError:
             ok = False
             print(f'  - {label}: 없음 → 설치: {sys.executable} -m pip install {"pillow" if mod == "PIL" else mod}')
+    try:
+        from .charts import font_files
+        ff = font_files()
+        print(f'  - 도표 한글 글꼴: {ff.get("family", "?")} ({os.path.basename(ff["Regular"])})')
+    except Exception as ex:  # noqa
+        ok = False
+        print(f'  - 도표 한글 글꼴: 없음 → {ex}')
+    ex_dir = os.path.join(HERE, 'data', 'report_example')
+    print(f'  - 보고서 예시(report init): {"있음" if os.path.exists(os.path.join(ex_dir, "report.txt")) else "없음 → 다시 설치하세요"}')
     print('PDF 변환 엔진')
     print(f'  - 한글(Hancom Office, Windows): {"사용 가능" if e["hancom"] else "없음"}')
     print(f'  - LibreOffice: {"있음" if e["libreoffice"] else "없음"} (HWPX 열기 확장이 없으면 실패할 수 있음)')

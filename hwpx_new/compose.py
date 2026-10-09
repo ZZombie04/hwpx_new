@@ -643,10 +643,11 @@ class Composer:
             split = nrow > 9
         # 한글 실측: '글자처럼 취급'(treatAsChar=1) 표는 쪽을 넘어 나뉘지 않고 통째로 다음 쪽으로 밀린다.
         # 나뉘어야 하는 긴 표는 본문과 함께 흐르는 '떠 있는' 표(treatAsChar=0, 위아래 배치)로 둔다.
+        # 나누는 방식은 TABLE(행 단위): CELL 은 한 칸의 글을 쪽 끝에서 잘라 두 쪽에 걸치게 해 읽기 어렵다.
         as_char = '0' if split else '1'
         self._z += 1
         tbl = (f'<hp:tbl id="{self._new_id()}" zOrder="{self._z}" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" '
-               f'textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="{"CELL" if split else "NONE"}" '
+               f'textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="{"TABLE" if split else "NONE"}" '
                f'repeatHeader="{1 if head else 0}" rowCnt="{nrow}" colCnt="{ncol}" cellSpacing="0" borderFillIDRef="2" '
                'noAdjust="0">'
                f'<hp:sz width="{total}" widthRelTo="ABSOLUTE" height="{sum(row_h)}" heightRelTo="ABSOLUTE" protect="0"/>'

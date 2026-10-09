@@ -16,7 +16,7 @@ import traceback
 
 GUIDE = os.path.join(os.path.dirname(__file__), 'FORMAT.md')
 SERVER_NAME = 'hwpx_new'
-SERVER_VERSION = '2.2.0'
+SERVER_VERSION = '2.3.0'
 SUPPORTED = ('2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07')
 
 TOOLS = {}
@@ -74,6 +74,9 @@ START_HERE = (
     '- 사용자가 한글에서 손본 파일 고치기 → hwpx_patch(ops JSON) / 글자만 바꾸기 → hwpx_replace\n'
     '- 점검 → hwpx_qa("오류 0" 까지) + hwpx_preview(모든 쪽)\n'
     '- 사진 때문에 문서가 무거움 → hwpx_shrink(보이는 크기 × 200dpi 로 그림만 줄임, 새 파일)\n'
+    '- **장편 보고서**(연구학교 결과보고서·연구보고서·논문형, 20~60쪽, 서식 파일 없이) → hwpx_report_guide → '
+    'hwpx_report_example(폴더) → 그 원고를 요청에 맞게 고쳐 쓰기(숫자는 @stats 계산 명령, 도표는 @chart 자료) → '
+    'hwpx_report_build → hwpx_preview 로 모든 쪽 확인 → 오류 0 까지 원고 수정\n'
     '명세 문법: hwpx_format_guide. 사실은 입력에서만, 없는 값은 ○○ 로 비우고 보고.\n\n'
     '## hwpx_new 사용 순서(서식 재현)\n'
     '1. hwpx_analyze(template_path): 사용자가 준 HWPX 서식을 분석한다(서식 종류 목록·블록 목록·표지 칸). 이어서 나오는 "뼈대 Markdown"이\n'
@@ -235,6 +238,70 @@ def _qa_text(path):
       '"오류 0" 이 될 때까지 고친 뒤 hwpx_preview 로 쪽 그림도 확인한다.', path=('string', 'HWPX 또는 PDF 경로'))
 def hwpx_qa(path):
     return _qa_text(path)
+
+
+@tool('장편 보고서(연구학교 결과보고서·연구보고서·논문형) 원고 문법과 좋은 보고서 규칙을 돌려준다. 보고서 원고를 쓰기 전에 먼저 본다.')
+def hwpx_report_guide():
+    from .report_cmd import guide_text
+    return guide_text()
+
+
+@tool('바로 빌드되는 완성 예시(원고 report.txt·자료 CSV·사진)를 folder 에 만들고 원고 전문을 돌려준다. 새 보고서는 이 원고를 고쳐 쓴다'
+      '(이미 report.txt 가 있으면 덮어쓰지 않고 그 원고를 돌려줌).', folder=('string', '예시를 만들 폴더(없으면 만듦)'))
+def hwpx_report_example(folder):
+    from .report_cmd import init_example
+    path = os.path.join(folder, 'report.txt')
+    if os.path.exists(path):
+        head = f'이미 원고가 있어 그대로 둡니다: {path}\n\n'
+    else:
+        files = init_example(folder)
+        head = (f'예시를 만들었습니다: {os.path.abspath(folder)} ({len(files)}개 파일: report.txt, data.csv, students.csv, '
+                f'ratings.csv, photos/)\n\n')
+    return head + open(path, encoding='utf-8').read()
+
+
+@tool('보고서 원고(report.txt 또는 원고 폴더) → HWPX + PDF. 표·그림 번호, 차례·표 차례 쪽수, 표 쪽 넘김, 통계(@stats)·도표(@chart)를 '
+      '도구가 맞추고(PDF 로 확인하며 몇 번 반복, 1~3분) 점검 결과(오류·주의)를 돌려준다.',
+      manuscript=('string', '원고 파일(report.txt) 또는 원고 폴더 경로'), output_dir=('string', '결과 폴더'),
+      name=('string', '파일 이름(생략하면 제목)', False), engine=('string', 'hancom|libreoffice|html (생략 시 자동)', False))
+def hwpx_report_build(manuscript, output_dir, name='', engine=''):
+    from .report import build_report, summarize
+    res = build_report(manuscript, output_dir, name=name or None, engine=engine or None,
+                       progress=lambda k, n, m: _progress(k, n, m))
+    return summarize(res)
+
+
+@tool('보고서 원고 점검: 풀지 못한 {{토큰}}·{표:키} 참조, 인용↔참고문헌, 날짜 요일, 근거보다 큰 말, 검정 없는 "유의", '
+      '(pdf_path 를 주면) 쪽 수 상한·장 중간의 큰 빈칸.', manuscript=('string', '원고 파일 또는 폴더'),
+      pdf_path=('string', '빌드한 PDF(선택)', False))
+def hwpx_report_check(manuscript, pdf_path=''):
+    from .report import read_manuscript
+    from .report_check import check
+    iss = check(read_manuscript(manuscript), pdf_path or None)
+    errs = sum(1 for x in iss if x[0] == '오류')
+    return '\n'.join(f'[{lv}] {m}' for lv, m in iss) + f'\n결과: 오류 {errs}, 주의 {sum(1 for x in iss if x[0] == "주의")}'
+
+
+@tool('보고서용 통계(외부 패키지 없이): paired(짝지은 t·d·CI)·welch(독립 두 집단·g)·alpha(α)·kappa(가중 κ)·corr(r)·desc(기술 통계)·'
+      'freq(비율). 한 줄 요약과 원고 토큰(@set)을 돌려준다. 숫자를 직접 계산하지 말고 이 도구를 쓴다. 원고에는 같은 명령을 '
+      '"@stats …" 줄로 써 두면 조판 때 자동 계산된다.',
+      command=('string', "예: 'paired 자료.csv --pre 사전 --post 사후 --prefix ref' (--where 경력=초임 으로 일부 행)"),
+      base_dir=('string', '자료 파일의 상대 경로 기준 폴더(보통 원고 폴더)', False))
+def hwpx_stats(command, base_dir=''):
+    from .stats import run_line
+    toks, summary = run_line(command, base_dir or None)
+    return summary + '\n\n' + '\n'.join(f'@set {k} = {v}' for k, v in toks.items())
+
+
+@tool('보고서와 같은 디자인의 도표 PNG 를 그린다(bar·hbar·group·dumbbell·stack·effect·hist·scatter·line·timeline·steps·cycle). '
+      '보고서 원고 안에서는 @chart 로 쓰면 되고, 이 도구는 다른 문서에 넣을 도표를 따로 만들 때 쓴다.',
+      spec=('string', 'JSON 문자열 또는 파일 경로. 예: {"type":"bar","label":"월별 건수","rows":[["4월",12],["5월",18]]}'),
+      output=('string', '저장할 PNG 경로'), accent=('string', '강조색 #RRGGBB(선택)', False))
+def hwpx_chart(spec, output, accent=''):
+    from .charts import render
+    path = render(json.dumps(spec, ensure_ascii=False) if isinstance(spec, (dict, list)) else spec, output, accent or None)
+    with open(path, 'rb') as f:
+        return [path, Image(f.read(), 'png')]
 
 
 # ---------------------------------------------------------------- JSON-RPC

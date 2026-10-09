@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://zzombie04.github.io/hwpx_new/sitemap.xml

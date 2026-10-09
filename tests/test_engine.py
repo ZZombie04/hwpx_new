@@ -149,6 +149,20 @@ def test_setup_registers_clients_into_fake_home():
     assert g['theme'] == 'x' and 'other' in g['mcpServers'] and 'hwpx_new' in g['mcpServers']
 
 
+def test_setup_claude_code_without_cli_uses_user_config(monkeypatch):
+    """데스크톱 앱·IDE 의 Claude Code 는 `claude` 명령이 없다 → ~/.claude.json 에 직접 등록(다른 설정은 보존)."""
+    from hwpx_new import setup_cmd
+    monkeypatch.setattr(setup_cmd.shutil, 'which', lambda name: None)
+    home = tempfile.mkdtemp()
+    os.makedirs(os.path.join(home, '.claude'))
+    cp = os.path.join(home, '.claude.json')
+    json.dump({'numStartups': 3, 'mcpServers': {'other': {'command': 'x'}}}, open(cp, 'w'))
+    msgs, n = setup_cmd.run_setup(yes=True, home=home, only=['claude-code'])
+    d = json.load(open(cp, encoding='utf-8'))
+    assert n == 1 and d['numStartups'] == 3 and 'other' in d['mcpServers'] and 'hwpx_new' in d['mcpServers'], msgs
+    assert os.path.exists(cp + '.hwpx_new.bak')
+
+
 def test_skill_text_has_front_matter():
     from hwpx_new import setup_cmd
     t = setup_cmd.skill_text()

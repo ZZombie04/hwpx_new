@@ -51,10 +51,10 @@ def test_compose_structure():
     # 강조색은 지정한 한 가지(진한 빨강)만 새로 쓰인다
     colors = {c.get('textColor') for c in head.iter(HH + 'charPr')}
     assert '#C00000' in colors
-    # 긴 표(split)는 떠 있는 표, 짧은 표는 글자처럼 취급
+    # 긴 표(split)는 떠 있는 표(행 단위로 쪽 나눔), 짧은 표는 글자처럼 취급
     tbls = list(sec.iter(HP + 'tbl'))
     flags = [(t.get('rowCnt'), t.find(HP + 'pos').get('treatAsChar'), t.get('pageBreak')) for t in tbls]
-    assert ('31', '0', 'CELL') in flags
+    assert ('31', '0', 'TABLE') in flags
     assert ('2', '1', 'NONE') in flags
     # 표 칸 머리 행에는 묶음 빈칸을 쓰지 않는다(좁은 칸에서 글자 중간 줄바꿈 방지)
     first = tbls[0].find('.//' + HP + 'tc')

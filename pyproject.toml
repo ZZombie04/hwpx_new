@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hwpx-new"
-version = "2.2.0"
-description = "한글(HWPX) 서식을 분석해 같은 서식의 새 문서(HWPX + PDF)를 만들어 주는 도구 · CLI · MCP · AI 스킬"
+version = "2.3.0"
+description = "한글(HWPX) 문서를 AI 로 만드는 도구: 서식 재현·계획서·공문·장편 보고서(차례·통계·도표 자동) · CLI · MCP · AI 스킬"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "ZZombie04" }]
-keywords = ["hwpx", "hwp", "한글", "hancom", "mcp", "skill", "report", "공문서"]
+keywords = ["hwpx", "hwp", "한글", "hancom", "mcp", "skill", "report", "공문서", "연구학교", "보고서", "결과보고서", "통계"]
 dependencies = [
   "lxml>=4.9",
   "pymupdf>=1.23",
@@ -29,4 +29,4 @@ Homepage = "https://github.com/ZZombie04/hwpx_new"
 packages = ["hwpx_new"]
 
 [tool.setuptools.package-data]
-hwpx_new = ["FORMAT.md", "data/*.md", "data/*.hwpx"]
+hwpx_new = ["FORMAT.md", "REPORT.md", "data/*.md", "data/*.hwpx", "data/report_example/*.txt", "data/report_example/*.csv", "data/report_example/photos/*.jpg"]

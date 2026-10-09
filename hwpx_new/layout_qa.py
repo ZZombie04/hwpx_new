@@ -1,28 +1,33 @@
 # -*- coding: utf-8 -*-
-"""조판 점검(Playwright): 한글이 만든 PDF 의 글줄을 뽑아 브라우저에서 규칙 검사 + 문제 위치 표시 스크린숏.
+"""조판 점검: 한글(또는 내장 렌더러)이 만든 PDF 의 글줄을 뽑아 규칙을 검사하고, 문제 위치를 표시한 쪽 그림을 남긴다.
 
 사용:
-    hwpx-new qa 결과.pdf [-o 점검폴더] [--skip 1] [--colors "#000000,#FFFFFF,#C00000"]
+    hwpx-new qa 결과.pdf|결과.hwpx [-o 점검폴더] [--skip 1] [--colors "#000000,#FFFFFF,#C00000"] [--strict]
 
 검사 항목(정돈 조판 규칙)
-  1. 글자색: 허용 색(검정·흰색·강조 빨강) 외의 글자
+  1. 글자색: 허용 색(검정·흰색·강조 빨강) 외의 글자(누리집 주소의 링크 색은 허용)
   2. 단계 정렬: 같은 기호·크기(■ 15pt, ❍ 14pt, - 13pt, ※ 12pt)의 줄머리 x 위치가 쪽마다 같은지
   3. 내어쓰기: 기호 문단의 둘째 줄이 첫 줄 글자 시작 위치에 맞는지
   4. 글꼴 통일: 같은 단계는 같은 글꼴인지
-  5. 여백 넘침, 6. 글줄 겹침, 7. 쪽 끝에 홀로 남은 소제목, 8. 거의 빈 쪽
+  5. 여백 넘침, 6. 글줄 겹침, 7. 쪽 끝에 홀로 남은 소제목, 8. 거의 빈 쪽, 9. (공문) 결재란이 홀로 남은 쪽
 
-Node + Playwright 가 필요하다(환경변수 PLAYWRIGHT_MODULE 로 playwright 모듈 경로 지정 가능).
+2.3.0 부터 검사와 표시 그림을 모두 파이썬(pymupdf + pillow)으로 한다 — Node.js·Playwright 가 없어도 같은 결과.
+결과: 점검폴더/qa_result.json, qa_page_N.png(문제 쪽, 빨강=오류·주황=주의), report.html(모든 쪽 + 표시).
 """
 import argparse
+import html as _html
 import json
 import os
+import re
 import shutil
-import subprocess
 import sys
+from collections import Counter
 
 import pymupdf
 
 MARKERS = ('■', '❍', '- ', '· ', '※')
+LINK = re.compile(r'https?://|www\.')
+LINK_COLORS = ('#0000FF', '#0563C1')
 
 
 def extract(pdf, out_dir, dpi=96):
@@ -48,7 +53,7 @@ def extract(pdf, out_dir, dpi=96):
                 tx = None
                 if chars and chars[0]['c'] in '■❍※·-':
                     j = 1
-                    while j < len(chars) and chars[j]['c'] in '  ':
+                    while j < len(chars) and chars[j]['c'] in '  ':
                         j += 1
                     if j < len(chars):
                         tx = round(chars[j]['bbox'][0], 2)
@@ -84,153 +89,159 @@ def extract(pdf, out_dir, dpi=96):
     return pages
 
 
-HTML = r"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>조판 점검</title>
-<style>
-body{margin:0;background:#f2f2f2;font:13px/1.5 sans-serif;color:#111}
-header{padding:12px 16px;background:#fff;border-bottom:1px solid #ddd;position:sticky;top:0;z-index:5}
-.page{position:relative;margin:16px auto;background:#fff;box-shadow:0 1px 4px #0003}
-.page img{display:block;width:100%}
-.hit{position:absolute;border:2px solid #e00;background:#ff000018}
-.hit.warn{border-color:#f90;background:#ff990018}
-.tag{position:absolute;left:0;top:-18px;background:#e00;color:#fff;font-size:11px;padding:0 4px;white-space:nowrap}
-.warn .tag{background:#f90}
-#sum li{margin:2px 0}
-</style></head><body>
-<header><b>조판 점검</b> <span id="stat"></span><ul id="sum"></ul></header>
-<div id="pages"></div>
-<script>
-const DATA = __DATA__;
-const CFG = __CFG__;
-function inside(l, rects){ // 글줄 중심이 표·박스 사각형 안에 있는가
-  const cx=(l.x0+l.x1)/2, cy=(l.y0+l.y1)/2;
-  return rects.some(r=>cx>r[0]+1&&cx<r[2]-1&&cy>r[1]&&cy<r[3]);
-}
-function inTable(p, l){
-  // 세로선 두 개 사이 또는 사각형 안이면 칸으로 본다
-  const cy=(l.y0+l.y1)/2, cx=(l.x0+l.x1)/2;
-  const v=p.rects.filter(r=>r[2]-r[0]<2 && cy>r[1]-1 && cy<r[3]+1);
-  const left=v.some(r=>r[0]<=l.x0+0.5), right=v.some(r=>r[0]>=l.x1-0.5);
-  if(left&&right) return true;
-  const boxes=p.rects.filter(r=>r[2]-r[0]>=40);
-  if(boxes.some(r=>cx>r[0]+1&&cx<r[2]-1&&cy>r[1]&&cy<r[3])) return true;
-  // 위아래 가로선 사이(좌우 바깥선이 없는 표)
-  const above=p.hlines.some(h=>h[1]<=l.y0+1 && h[1]>l.y0-40 && h[0]<=cx && h[2]>=cx);
-  const below=p.hlines.some(h=>h[1]>=l.y1-1 && h[1]<l.y1+40 && h[0]<=cx && h[2]>=cx);
-  if(above&&below) return true;
-  // 바깥 세로선이 없는 표의 높은 칸: 한쪽 세로선 + 위아래 가로선(150pt 안)
-  const far_above=p.hlines.some(h=>h[1]<=l.y0+1 && h[1]>l.y0-150 && h[0]<=cx && h[2]>=cx);
-  const far_below=p.hlines.some(h=>h[1]>=l.y1-1 && h[1]<l.y1+150 && h[0]<=cx && h[2]>=cx);
-  return (left||right) && far_above && far_below;
-}
-const LINK=/https?:\/\/|www\./, LINK_COLORS=['#0000FF','#0563C1'];
-function marker(t){ if(/^- ?\d+ ?-$/.test(t)) return null; const m=t.match(/^(■|❍|※|·|-)/); return m?m[1]:null; }
-function mode(arr){ const c={}; arr.forEach(x=>c[x]=(c[x]||0)+1); return +Object.entries(c).sort((a,b)=>b[1]-a[1])[0][0]; }
-function runChecks(){
-  const issues=[]; const add=(p,l,kind,msg,level='err')=>issues.push({page:p.n,kind,msg,level,box:l?[l.x0,l.y0,l.x1,l.y1]:null,text:l?l.text.slice(0,40):''});
-  const pages=DATA.filter(p=>!CFG.skip.includes(p.n));
-  const allow=CFG.colors.map(c=>c.toUpperCase());
-  // 1 글자색
-  pages.forEach(p=>p.lines.forEach(l=>{const link=LINK.test(l.text);
-    const bad=l.colors.filter(c=>!allow.includes(c) && !(link && LINK_COLORS.includes(c)));   // 누리집 주소의 링크 색은 허용
-    if(bad.length) add(p,l,'색',`허용되지 않은 글자색 ${bad.join(',')}`);}));
-  (CFG.extra||[]).forEach(x=>issues.push(x));
-  // 단계 줄머리 수집(표 밖 본문만)
-  const groups={};
-  pages.forEach(p=>p.lines.forEach((l,i)=>{ if(inTable(p,l)) return; const m=marker(l.text); if(!m) return;
-    const key=m+'|'+l.size; (groups[key]=groups[key]||[]).push({p,l,i}); }));
-  Object.entries(groups).forEach(([key,arr])=>{
-    if(arr.length<2) return;
-    const xm=mode(arr.map(a=>Math.round(a.l.x0)));
-    // 2 단계 정렬
-    arr.forEach(a=>{ if(Math.abs(a.l.x0-xm)>1.6) add(a.p,a.l,'정렬',`'${key.split('|')[0]}' ${key.split('|')[1]}pt 줄머리 x=${a.l.x0.toFixed(1)} (기준 ${xm})`); });
-    // 4 글꼴 통일
-    const fm=Object.entries(arr.reduce((c,a)=>(c[a.l.font]=(c[a.l.font]||0)+1,c),{})).sort((a,b)=>b[1]-a[1])[0][0];
-    arr.forEach(a=>{ if(a.l.font!==fm) add(a.p,a.l,'글꼴',`같은 단계인데 글꼴이 다름: ${a.l.font} (기준 ${fm})`); });
-    // 3 내어쓰기: 다음 줄이 기호 없는 이어지는 줄이면 첫 줄 글자 시작 위치에 맞아야 함
-    arr.forEach(a=>{
-      const l=a.l, nx=a.p.lines[a.i+1]; if(!nx||marker(nx.text)||inTable(a.p,nx)) return;
-      if(Math.abs(nx.size-l.size)>0.2) return; const gap=nx.y0-l.y1; if(gap<-1||gap>l.size*1.2) return;
-      const tx = l.tx; if(tx===null||tx===undefined){ return; }
-      if(Math.abs(nx.x0-tx)>2.2) add(a.p,nx,'내어쓰기',`둘째 줄 x=${nx.x0.toFixed(1)} 이 첫 줄 글자 시작 ${tx.toFixed(1)} 에 맞지 않음`,'warn');
-    });
-  });
-  // 5 여백 넘침, 6 겹침, 7 홀로 남은 소제목, 8 거의 빈 쪽
-  pages.forEach(p=>{
-    const L=p.lines;
-    L.forEach(l=>{ if(l.x1>p.w-CFG.margin||l.x0<CFG.margin-6) add(p,l,'여백',`본문 영역 밖(x ${l.x0.toFixed(0)}~${l.x1.toFixed(0)})`); });
-    for(let i=0;i<L.length;i++)for(let j=i+1;j<L.length;j++){const a=L[i],b=L[j];
-      const ox=Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0), oy=Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0);
-      if(ox>2&&oy>Math.min(a.y1-a.y0,b.y1-b.y0)*0.45) add(p,a,'겹침',`글줄 겹침: "${b.text.slice(0,20)}"`);}
-    const body=L.filter(l=>!/^- ?\d+ ?-$/.test(l.text));
-    const heads=body.filter(l=>l.text.startsWith('■')&&!inTable(p,l));
-    heads.forEach(h=>{ const after=body.filter(l=>l.y0>h.y1+1); if(after.length===0||h.y1>p.h*0.86) add(p,h,'쪽끝',`소제목이 쪽 끝에 홀로 남음`); });
-    if(body.length){ const top=Math.min(...body.map(l=>l.y0)), bot=Math.max(...body.map(l=>l.y1));
-      if((bot-top)/(p.h-2*CFG.margin) < CFG.minFill && p.n!==DATA[DATA.length-1].n) add(p,null,'빈쪽',`쪽 내용이 ${Math.round((bot-top)/(p.h-2*CFG.margin)*100)}%만 채워짐`,'warn'); }
-  });
-  return issues;
-}
-function render(issues){
-  const box=document.getElementById('pages');
-  DATA.forEach(p=>{
-    const d=document.createElement('div'); d.className='page'; d.id='p'+p.n; d.style.width=(p.w*CFG.scale)+'px';
-    d.innerHTML=`<img src="${p.img}">`;
-    issues.filter(x=>x.page===p.n&&x.box).forEach(x=>{const h=document.createElement('div'); h.className='hit '+(x.level==='warn'?'warn':'');
-      const s=CFG.scale; h.style.left=(x.box[0]*s-2)+'px'; h.style.top=(x.box[1]*s-2)+'px'; h.style.width=((x.box[2]-x.box[0])*s+4)+'px'; h.style.height=((x.box[3]-x.box[1])*s+4)+'px';
-      h.innerHTML=`<span class="tag">${x.kind}</span>`; d.appendChild(h);});
-    box.appendChild(d);
-  });
-  const errs=issues.filter(x=>x.level!=='warn').length, warns=issues.length-errs;
-  document.getElementById('stat').textContent=`쪽 ${DATA.length} · 오류 ${errs} · 주의 ${warns}`;
-  document.getElementById('sum').innerHTML=issues.slice(0,60).map(x=>`<li>${x.page}쪽 [${x.kind}] ${x.msg} ${x.text?'— '+x.text:''}</li>`).join('');
-}
-window.QA = runChecks(); render(window.QA);
-</script></body></html>"""
+# ------------------------------------------------------------------ 규칙
+def _in_table(p, ln):
+    """세로선 두 개 사이·사각형 안·위아래 가로선 사이면 표 칸으로 본다."""
+    cy, cx = (ln['y0'] + ln['y1']) / 2, (ln['x0'] + ln['x1']) / 2
+    v = [r for r in p['rects'] if r[2] - r[0] < 2 and r[1] - 1 < cy < r[3] + 1]
+    left = any(r[0] <= ln['x0'] + 0.5 for r in v)
+    right = any(r[0] >= ln['x1'] - 0.5 for r in v)
+    if left and right:
+        return True
+    if any(r[2] - r[0] >= 40 and r[0] + 1 < cx < r[2] - 1 and r[1] < cy < r[3] for r in p['rects']):
+        return True
+    hl = p['hlines']
+    above = any(h[1] <= ln['y0'] + 1 and h[1] > ln['y0'] - 40 and h[0] <= cx <= h[2] for h in hl)
+    below = any(h[1] >= ln['y1'] - 1 and h[1] < ln['y1'] + 40 and h[0] <= cx <= h[2] for h in hl)
+    if above and below:
+        return True
+    far_above = any(h[1] <= ln['y0'] + 1 and h[1] > ln['y0'] - 150 and h[0] <= cx <= h[2] for h in hl)
+    far_below = any(h[1] >= ln['y1'] - 1 and h[1] < ln['y1'] + 150 and h[0] <= cx <= h[2] for h in hl)
+    return (left or right) and far_above and far_below
 
-MJS = r"""
-const path = require('path');
-const fs = require('fs');
-function loadPlaywright() {
-  const cands = [process.env.PLAYWRIGHT_MODULE, 'playwright'].filter(Boolean);
-  for (const c of cands) { try { return require(c); } catch (e) {} }
-  throw new Error('playwright 모듈을 찾지 못했습니다(PLAYWRIGHT_MODULE 환경변수로 경로 지정).');
-}
-(async () => {
-  const [html, outDir] = process.argv.slice(2);
-  const { chromium } = loadPlaywright();
-  let browser;
-  try { browser = await chromium.launch(); }
-  catch (e) {
-    // 설치된 playwright 버전과 내려받은 브라우저 버전이 다를 때: 이미 있는 Chromium 실행 파일로 띄운다
-    const root = path.join(process.env.LOCALAPPDATA || '', 'ms-playwright');
-    const exes = [];
-    for (const d of (fs.existsSync(root) ? fs.readdirSync(root) : []).sort().reverse()) {
-      for (const rel of ['chrome-headless-shell-win64/chrome-headless-shell.exe', 'chrome-win64/chrome.exe', 'chrome-win/chrome.exe']) {
-        const f = path.join(root, d, rel); if (fs.existsSync(f)) exes.push(f);
-      }
-    }
-    for (const f of exes) { try { browser = await chromium.launch({ executablePath: f }); break; } catch (e2) {} }
-    if (!browser) throw e;
-  }
-  const page = await browser.newPage({ viewport: { width: 980, height: 1200 } });
-  await page.goto('file:///' + path.resolve(html).replace(/\\/g, '/'));
-  await page.waitForFunction(() => window.QA !== undefined);
-  const qa = await page.evaluate(() => window.QA);
-  fs.writeFileSync(path.join(outDir, 'qa_result.json'), JSON.stringify(qa, null, 1), 'utf-8');
-  const flagged = [...new Set(qa.map(x => x.page))];
-  for (const n of flagged) {
-    const el = await page.$('#p' + n);
-    if (el) await el.screenshot({ path: path.join(outDir, `qa_page_${n}.png`) });
-  }
-  await page.screenshot({ path: path.join(outDir, 'qa_overview.png'), fullPage: false });
-  await browser.close();
-  const errs = qa.filter(x => x.level !== 'warn').length;
-  console.log(JSON.stringify({ issues: qa.length, errors: errs, warnings: qa.length - errs, pages: flagged }));
-})().catch(e => { console.error(e.message); process.exit(2); });
-"""
+
+def _marker(t):
+    if re.match(r'^- ?\d+ ?-$', t):
+        return None
+    m = re.match(r'^(■|❍|※|·|-)', t)
+    return m.group(1) if m else None
+
+
+def run_checks(pages, cfg):
+    issues = []
+
+    def add(p, ln, kind, msg, level='err'):
+        issues.append({'page': p['n'], 'kind': kind, 'msg': msg, 'level': level,
+                       'box': [ln['x0'], ln['y0'], ln['x1'], ln['y1']] if ln else None, 'text': ln['text'][:40] if ln else ''})
+    sel = [p for p in pages if p['n'] not in cfg['skip']]
+    allow = [c.upper() for c in cfg['colors']]
+    for p in sel:                                                   # 1 글자색
+        for ln in p['lines']:
+            link = bool(LINK.search(ln['text']))
+            bad = [c for c in ln['colors'] if c not in allow and not (link and c in LINK_COLORS)]
+            if bad:
+                add(p, ln, '색', f"허용되지 않은 글자색 {','.join(bad)}")
+    issues.extend(cfg.get('extra') or [])
+    groups = {}
+    for p in sel:                                                   # 단계 줄머리 수집(표 밖 본문만)
+        for i, ln in enumerate(p['lines']):
+            if _in_table(p, ln):
+                continue
+            m = _marker(ln['text'])
+            if m:
+                groups.setdefault((m, ln['size']), []).append((p, ln, i))
+    for (m, size), arr in groups.items():
+        if len(arr) < 2:
+            continue
+        xm = Counter(round(a[1]['x0']) for a in arr).most_common(1)[0][0]
+        for p, ln, _ in arr:                                        # 2 단계 정렬
+            if abs(ln['x0'] - xm) > 1.6:
+                add(p, ln, '정렬', f"'{m}' {size}pt 줄머리 x={ln['x0']:.1f} (기준 {xm})")
+        fm = Counter(a[1]['font'] for a in arr).most_common(1)[0][0]
+        for p, ln, _ in arr:                                        # 4 글꼴 통일
+            if ln['font'] != fm:
+                add(p, ln, '글꼴', f"같은 단계인데 글꼴이 다름: {ln['font']} (기준 {fm})")
+        for p, ln, i in arr:                                        # 3 내어쓰기
+            nx = p['lines'][i + 1] if i + 1 < len(p['lines']) else None
+            if not nx or _marker(nx['text']) or _in_table(p, nx):
+                continue
+            if abs(nx['size'] - ln['size']) > 0.2:
+                continue
+            gap = nx['y0'] - ln['y1']
+            if gap < -1 or gap > ln['size'] * 1.2 or ln['tx'] is None:
+                continue
+            if abs(nx['x0'] - ln['tx']) > 2.2:
+                add(p, nx, '내어쓰기', f"둘째 줄 x={nx['x0']:.1f} 이 첫 줄 글자 시작 {ln['tx']:.1f} 에 맞지 않음", 'warn')
+    last = pages[-1]['n'] if pages else 0
+    for p in sel:                                                   # 5 여백, 6 겹침, 7 쪽 끝 소제목, 8 빈 쪽
+        L = p['lines']
+        for ln in L:
+            if ln['x1'] > p['w'] - cfg['margin'] or ln['x0'] < cfg['margin'] - 6:
+                add(p, ln, '여백', f"본문 영역 밖(x {ln['x0']:.0f}~{ln['x1']:.0f})")
+        for i in range(len(L)):
+            for j in range(i + 1, len(L)):
+                a, b = L[i], L[j]
+                ox = min(a['x1'], b['x1']) - max(a['x0'], b['x0'])
+                oy = min(a['y1'], b['y1']) - max(a['y0'], b['y0'])
+                if ox > 2 and oy > min(a['y1'] - a['y0'], b['y1'] - b['y0']) * 0.45:
+                    add(p, a, '겹침', f"글줄 겹침: \"{b['text'][:20]}\"")
+        body = [ln for ln in L if not re.match(r'^- ?\d+ ?-$', ln['text'])]
+        for h in [ln for ln in body if ln['text'].startswith('■') and not _in_table(p, ln)]:
+            after = [ln for ln in body if ln['y0'] > h['y1'] + 1]
+            if not after or h['y1'] > p['h'] * 0.86:
+                add(p, h, '쪽끝', '소제목이 쪽 끝에 홀로 남음')
+        if body:
+            top, bot = min(ln['y0'] for ln in body), max(ln['y1'] for ln in body)
+            fill = (bot - top) / (p['h'] - 2 * cfg['margin'])
+            if fill < cfg['minFill'] and p['n'] != last:
+                add(p, None, '빈쪽', f'쪽 내용이 {round(fill * 100)}%만 채워짐', 'warn')
+    return issues
+
+
+# ------------------------------------------------------------------ 표시 그림·보고서
+def annotate(out, pages, issues, dpi=96):
+    from PIL import Image, ImageDraw
+    s = dpi / 72
+    saved = []
+    for n in sorted({x['page'] for x in issues}):
+        p = next((q for q in pages if q['n'] == n), None)
+        if not p:
+            continue
+        path = os.path.join(out, p['img'])
+        im = Image.open(path).convert('RGB')
+        d = ImageDraw.Draw(im, 'RGBA')
+        for x in issues:
+            if x['page'] != n or not x.get('box'):
+                continue
+            col = (255, 153, 0) if x['level'] == 'warn' else (220, 0, 0)
+            x0, y0, x1, y1 = [v * s for v in x['box']]
+            d.rectangle([x0 - 2, y0 - 2, x1 + 2, y1 + 2], outline=col + (255,), width=2, fill=col + (28,))
+            d.rectangle([x0 - 2, y0 - 16, x0 + 8 + 7 * len(x['kind']) * 2, y0 - 2], fill=col + (255,))
+            try:
+                from PIL import ImageFont
+                from .charts import font_files
+                f = ImageFont.truetype(font_files()['Regular'], 11)
+            except Exception:  # noqa
+                f = None
+            d.text((x0 + 2, y0 - 15), x['kind'], fill=(255, 255, 255), font=f)
+        dst = os.path.join(out, f'qa_page_{n}.png')
+        im.save(dst)
+        saved.append(dst)
+    return saved
+
+
+def write_html(out, pages, issues):
+    errs = sum(1 for x in issues if x['level'] != 'warn')
+    rows = ''.join(f"<li>{x['page']}쪽 [{_html.escape(x['kind'])}] {_html.escape(x['msg'])} "
+                   f"{('— ' + _html.escape(x['text'])) if x['text'] else ''}</li>" for x in issues[:200])
+    body = ''
+    for p in pages:
+        img = f"qa_page_{p['n']}.png" if any(x['page'] == p['n'] for x in issues) else p['img']
+        body += f'<div class="page" id="p{p["n"]}"><img src="{img}" alt="{p["n"]}쪽"></div>'
+    html = ('<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>조판 점검</title><style>'
+            'body{margin:0;background:#f2f2f2;font:13px/1.5 sans-serif;color:#111}'
+            'header{padding:12px 16px;background:#fff;border-bottom:1px solid #ddd;position:sticky;top:0}'
+            '.page{margin:16px auto;max-width:820px;background:#fff;box-shadow:0 1px 4px #0003}.page img{display:block;width:100%}'
+            f'</style></head><body><header><b>조판 점검</b> 쪽 {len(pages)} · 오류 {errs} · 주의 {len(issues) - errs}'
+            f'<ul>{rows}</ul></header>{body}</body></html>')
+    path = os.path.join(out, 'report.html')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(html)
+    return path
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description='한글 PDF 조판 점검(Playwright)')
+    ap = argparse.ArgumentParser(description='HWPX/PDF 조판 점검')
     ap.add_argument('pdf')
     ap.add_argument('-o', '--out', default=None)
     ap.add_argument('--skip', default='1', help='점검에서 뺄 쪽(쉼표, 기본: 표지 1쪽)')
@@ -261,43 +272,21 @@ def main(argv=None):
     except Exception:  # noqa
         pass
     cfg = {'skip': [int(x) for x in a.skip.split(',') if x.strip()], 'colors': a.colors.split(','),
-           'margin': a.margin, 'minFill': a.min_fill, 'scale': 96 / 72, 'extra': extra}
-    html = os.path.join(out, 'report.html')
-    with open(html, 'w', encoding='utf-8') as f:
-        f.write(HTML.replace('__DATA__', json.dumps(pages, ensure_ascii=False)).replace('__CFG__', json.dumps(cfg)))
-    mjs = os.path.join(out, 'qa.cjs')
-    with open(mjs, 'w', encoding='utf-8') as f:
-        f.write(MJS)
-    node = shutil.which('node')
-    if not node:
-        print('Node.js 가 없어 브라우저 점검을 건너뜁니다. report.html 을 브라우저로 열어 확인하세요:', html)
-        return 1
-    env = dict(os.environ)
-    if not env.get('PLAYWRIGHT_MODULE'):     # 전역 설치(npm i -g playwright)도 찾는다
-        npm = shutil.which('npm') or shutil.which('npm.cmd')
-        if npm:
-            try:
-                root = subprocess.run([npm, 'root', '-g'], capture_output=True, text=True, timeout=30).stdout.strip()
-                if root and os.path.isdir(os.path.join(root, 'playwright')):
-                    env['PLAYWRIGHT_MODULE'] = os.path.join(root, 'playwright')
-            except (OSError, subprocess.SubprocessError):
-                pass
-    r = subprocess.run([node, mjs, html, out], capture_output=True, text=True, encoding='utf-8', env=env)
-    if r.returncode != 0 and 'playwright' in (r.stderr or '').lower():
-        print('Playwright 를 찾지 못했습니다. `npm i -g playwright` 후 다시 실행하거나(브라우저는 자동 탐색), '
-              'report.html 을 브라우저로 열면 같은 점검 결과를 볼 수 있습니다:', html)
-    print((r.stdout or '').strip() or (r.stderr or '').strip())
-    res = os.path.join(out, 'qa_result.json')
-    errs = 0
-    if os.path.exists(res):
-        qa = json.load(open(res, encoding='utf-8'))
-        for x in qa[:80]:
-            print(f"  {x['page']}쪽 [{x['kind']}] {x['msg']} — {x['text']}")
-        errs = sum(1 for x in qa if x.get('level') != 'warn')
-        print(f'결과: 오류 {errs}, 주의 {len(qa) - errs} (오류 0 이 될 때까지 고친 뒤, 쪽 그림도 눈으로 확인)')
-        print('보고서:', html)
-    if r.returncode != 0:
-        return r.returncode
+           'margin': a.margin, 'minFill': a.min_fill, 'extra': extra}
+    qa = run_checks(pages, cfg)
+    with open(os.path.join(out, 'qa_result.json'), 'w', encoding='utf-8') as f:
+        json.dump(qa, f, ensure_ascii=False, indent=1)
+    annotate(out, pages, qa)
+    html = write_html(out, pages, qa)
+    for x in qa[:80]:
+        print(f"  {x['page']}쪽 [{x['kind']}] {x['msg']} — {x['text']}")
+    errs = sum(1 for x in qa if x.get('level') != 'warn')
+    color = sum(1 for x in qa if x.get('level') != 'warn' and '색' in str(x.get('kind', '')))
+    if errs >= 30 and color >= 0.8 * errs:
+        print('※ 오류 대부분이 글자색입니다. 강조색을 쓰는 장편 보고서(hwpx-new report)로 만든 문서라면 qa 가 아니라 '
+              '빌드 출력의 "점검: 오류 N" 과 `hwpx-new report check 원고 --pdf 결과.pdf` 로 점검하세요(qa 는 계획서·공문용).')
+    print(f'결과: 오류 {errs}, 주의 {len(qa) - errs} (오류 0 이 될 때까지 고친 뒤, 쪽 그림도 눈으로 확인)')
+    print('보고서:', html)
     return 1 if (a.strict and errs) else 0
 
 

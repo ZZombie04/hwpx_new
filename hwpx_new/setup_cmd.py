@@ -86,9 +86,13 @@ def register_toml(path, dry=False):
     return 'added'
 
 
-def register_claude_code(dry=False):
+def register_claude_code(dry=False, home=None):
     exe = shutil.which('claude')
     if not exe:
+        # 데스크톱 앱·IDE 확장에 들어 있는 Claude Code 는 `claude` 명령이 PATH 에 없다 → 사용자 설정(~/.claude.json)에 직접 등록
+        cfg = os.path.join(_home(home), '.claude.json')
+        if os.path.exists(cfg):
+            return register_json(cfg, dry)
         return 'no-cli'
     if dry:
         return 'added'
@@ -108,7 +112,7 @@ def register_claude_code(dry=False):
 DATA = os.path.join(os.path.dirname(__file__), 'data')
 SKILL_FRONT = """---
 name: hwpx-new
-description: 한글(HWPX) 문서를 만들고 고친다 — 서식 그대로 새 문서(계획서→결과보고서, 작년→올해), Ⅰ→■→❍→- 체계의 정돈된 계획서·안내문, 공문(내부 기안문·학교로 나갈 겉공문, 표·QR 포함), 사용자가 한글에서 손본 파일의 부분 수정(손본 자간·서식 보존), 행사명 같은 글자만 바꾸기, 조판 점검. 사용자가 .hwpx/.hwp 파일을 주며 "이 양식으로 만들어줘", "결과보고서로 바꿔줘", "겉공문 만들어줘", "계획서에 ○○ 넣어줘", "명칭만 바꿔줘"라고 할 때 사용.
+description: 한글(HWPX) 문서를 만들고 고친다 — 서식 그대로 새 문서(계획서→결과보고서, 작년→올해), Ⅰ→■→❍→- 체계의 정돈된 계획서·안내문, 공문(내부 기안문·학교로 나갈 겉공문, 표·QR 포함), 사용자가 한글에서 손본 파일의 부분 수정(손본 자간·서식 보존), 행사명 같은 글자만 바꾸기, 연구학교 결과보고서·연구보고서 같은 장편 보고서(차례·표 차례·통계 검정·도표 자동, 20~60쪽), 조판 점검. 사용자가 .hwpx/.hwp 파일을 주며 "이 양식으로 만들어줘", "결과보고서로 바꿔줘", "겉공문 만들어줘", "계획서에 ○○ 넣어줘", "명칭만 바꿔줘"라고 하거나, "연구학교 결과보고서를 한글로 써줘"처럼 장편 보고서를 요청할 때 사용.
 ---
 
 """
@@ -158,7 +162,7 @@ def run_setup(only=None, yes=False, dry=False, home=None, include_missing=False,
                 continue
         try:
             if c['kind'] == 'cli':
-                res = register_claude_code(dry)
+                res = register_claude_code(dry, home)
             elif c['kind'] == 'json':
                 res = register_json(c['path'], dry)
             else:

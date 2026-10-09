@@ -10,6 +10,7 @@ hwpx-new setup --skill    # Claude Code 스킬(SKILL.md)도 설치
 ```
 
 - Claude Code · Claude Desktop · Codex CLI · Gemini CLI · Cursor · Windsurf 를 자동으로 찾습니다.
+  데스크톱 앱이나 IDE 확장에 든 Claude Code 처럼 `claude` 명령이 없으면 사용자 설정(`~/.claude.json`)에 직접 등록합니다.
 - 설정 파일은 고치기 전에 `…hwpx_new.bak` 으로 **백업**하고, 이미 연결돼 있으면 건드리지 않으며, 다른 MCP 설정은 그대로 둡니다.
 - 설정에는 이 파이썬의 **전체 경로**가 들어가므로 PATH 설정이 필요 없습니다.
 - 끝나면 **AI 프로그램을 완전히 종료했다가 다시 실행**해야 도구가 나타납니다.
@@ -61,6 +62,12 @@ args = ['-m', 'hwpx_new.mcp_server']
 | `hwpx_build` | **HWPX + PDF 생성**(자동 점검·보정) |
 | `hwpx_preview` | PDF 한 쪽을 이미지로 확인 |
 | `hwpx_photos` / `hwpx_photo_sheet` | 사진 목록 / 번호 붙은 한눈에 보기 이미지 |
+| `hwpx_compose` / `hwpx_gongmun` | 정돈 조판(계획서·안내문) / 공문(기안문·시행문) — 명세 JSON |
+| `hwpx_patch` / `hwpx_replace` / `hwpx_shrink` | 손본 파일 고치기 / 글자만 바꾸기 / 그림 용량 줄이기 |
+| `hwpx_qa` | 조판 점검(오류 0 까지) |
+| `hwpx_report_guide` / `hwpx_report_example` | 장편 보고서 원고 문법 / 바로 빌드되는 예시 원고·자료·사진 만들기 |
+| `hwpx_report_build` / `hwpx_report_check` | **원고 → HWPX + PDF**(차례 쪽수·표 쪽 넘김 자동) / 인용·참조·요일·쪽수 점검 |
+| `hwpx_stats` / `hwpx_chart` | 통계(t·d·α·κ·r·비율 → 원고 토큰) / 보고서 디자인 도표 PNG |
 
 MCP 서버는 외부 패키지 없이 표준 라이브러리만으로 구현돼(줄 단위 JSON-RPC 2.0) 설치 충돌이 없습니다.
 
@@ -68,6 +75,7 @@ MCP 서버는 외부 패키지 없이 표준 라이브러리만으로 구현돼(
 
 - 셸 명령을 실행할 수 있는 AI(Claude Code, Codex, Gemini CLI 등)는 저장소의 `AGENTS.md` 만으로 동작합니다(`hwpx-new instructions` 로도 출력).
 - 명령을 실행할 수 없는 웹 채팅은 `hwpx-new prompt 서식.hwpx "요청"` 으로 만든 프롬프트를 붙여 넣으세요.
+  장편 보고서는 `hwpx-new report prompt "요청" --data 자료.csv` → 받은 원고를 `report.txt` 로 저장 → `hwpx-new report report.txt`.
 
 ---
 
