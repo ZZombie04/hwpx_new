@@ -22,6 +22,7 @@ globs: ["**/*.hwpx", "**/*.hwp"]
 | 사용자가 **한글에서 손본 파일**을 고쳐 달라(내용 추가·수정) | patch | `diff` → `patch 원본 ops.json -o 결과 --check` |
 | 행사명·날짜·기관명 **글자만 바꾸기**(다른 것은 절대 손대지 말라) | replace | `replace 원본 -o 결과 --pair "옛=>새"` |
 | 결과 점검 | qa | `qa 결과.hwpx --strict` |
+| 사진 때문에 문서 **용량이 너무 큼** | shrink | `shrink 문서.hwpx -o 작은문서.hwpx` |
 
 명령 앞에는 `hwpx-new`(안 되면 `python -m hwpx_new`)를 붙인다. MCP 가 연결돼 있으면 같은 이름의 도구(`hwpx_gongmun`, `hwpx_compose`,
 `hwpx_patch`, `hwpx_replace`, `hwpx_qa`, `hwpx_build` …)를 쓴다. 명세 문법은 `hwpx-new format`, 예시는 저장소 `examples/*.json`.
@@ -76,6 +77,8 @@ hwpx-new build 서식.hwpx 내용.md -o 결과폴더 --name "문서 이름"
 
 - 요청별 재구성: 계획서→결과보고서는 개요·일정(실제)·실적·운영 결과·만족도·성과·제언, 작년→올해는 날짜·요일·인원·금액만 갱신(요일 검증).
 - 사진: `hwpx-new photos 사진폴더` 로 번호 붙은 한눈에 보기 이미지를 보고 장면별로 `:::photos` 에 넣는다(학생 얼굴이 보이면 게시 동의 안내).
+- 그림 용량: 도구가 **보이는 크기 × 200dpi** 로 줄이고 사진은 JPEG(품질 82), 도표·QR 은 PNG 로 넣는다. 원본을 직접 ZIP 에 넣지 않는다.
+  사용자가 준 문서가 큰 원본 사진 때문에 무거우면 `hwpx-new shrink 문서.hwpx -o 작은문서.hwpx` (글·서식 그대로, 새 파일로).
 - 사진·도면·양식이 많은 문서를 다른 기관용으로: 처음부터 쓰지 말고 블록 복제 + `replace`, 원본 지역·기관 표현이 남지 않게 글자 검색으로 확인.
 
 ## 3. 정돈 조판 — compose (계획서·안내문)

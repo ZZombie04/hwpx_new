@@ -134,6 +134,11 @@ def build_parser():
     p.add_argument('-o', '--out', required=True)
     p.add_argument('--pair', action='append', required=True, help='"옛 글=>새 글" (여러 번 가능)')
 
+    p = sub.add_parser('shrink', help='HWPX 안 그림을 표시 크기에 맞춰 줄여 문서 용량 줄이기(글·서식은 그대로)')
+    p.add_argument('src')
+    p.add_argument('-o', '--out', required=True)
+    p.add_argument('--dpi', type=int, default=200, help='표시 크기 기준 해상도(기본 200, 인쇄해도 또렷함)')
+
     p = sub.add_parser('diff', help='두 HWPX 의 글 차이와 한글 저장 여부 확인(사용자가 손본 곳 찾기)')
     p.add_argument('a')
     p.add_argument('b')
@@ -261,6 +266,13 @@ def _run(a, ap):
     if a.cmd == 'diff':
         from .patch import diff_report
         print(diff_report(a.a, a.b))
+        return 0
+    if a.cmd == 'shrink':
+        from .images import shrink_hwpx
+        rep, (b, f) = shrink_hwpx(a.src, a.out, dpi=a.dpi)
+        for name, kb0, kb1 in rep:
+            print(f' - {name}: {kb0}KB → {kb1}KB')
+        print(f'문서 {b}KB → {f}KB ({0 if not b else round((1 - f / b) * 100)}% 줄임): {a.out}')
         return 0
     if a.cmd == 'doctor':
         rc = _doctor()

@@ -14,7 +14,8 @@ from collections import Counter
 
 from .analyze import (ROMAN as ROMAN_CHARS, Block, Blueprint, analyze, bullet_marker, cell_paragraphs, first_char_id,
                       heading_class, is_bullet_start, ptext, table_of)
-from .images import (ImageError, MM, fit_size, next_image_index, pic_run, prepare_image, register_images)
+from .images import (ImageError, MM, fit_size, next_image_index, pic_run, prepare_for_box, prepare_image,  # noqa: F401
+                     register_images)
 from .package import HH, HP, NS
 
 HEADING_SPLIT = re.compile(r'^(\S{1,6}\s*[\.\)]\s*)(.*)$', re.S)
@@ -1160,7 +1161,8 @@ class Builder:
     def add_image(self, path, max_w, max_h, want_w=None):
         full = os.path.abspath(self.resolve_path(path))
         if full not in self._imgs:
-            data, ext, wpx, hpx = prepare_image(full)
+            # 표시 칸 크기에 맞춰 픽셀을 줄이고 사진은 JPEG·도표는 팔레트 PNG 로(문서 용량이 그림 때문에 커지지 않게)
+            data, ext, wpx, hpx, _, _ = prepare_for_box(full, max_w, max_h, want_w)
             bin_id = f'image{self._img_idx}'
             self._img_idx += 1
             self._imgs[full] = (bin_id, ext, data, wpx, hpx)

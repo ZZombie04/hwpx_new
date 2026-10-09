@@ -26,7 +26,7 @@ import re
 
 from lxml import etree
 
-from .images import MM, fit_size, pic_run, prepare_image, register_images, next_image_index
+from .images import MM, fit_size, pic_run, prepare_for_box, prepare_image, register_images, next_image_index  # noqa: F401
 from .package import Package
 
 HP_NS = 'http://www.hancom.co.kr/hwpml/2011/paragraph'
@@ -529,11 +529,11 @@ class Composer:
 
     # ------------------------------------------------------------ 그림
     def _pic(self, path, w_mm, max_h_mm=120):
-        data, ext, wpx, hpx = prepare_image(path, max_px=2400)
+        # 표시 크기 × 200dpi 만큼만 픽셀을 남기고 사진은 JPEG·도표·QR 은 팔레트 PNG 로(문서 용량을 그림이 키우지 않게)
+        data, ext, wpx, hpx, w, h = prepare_for_box(path, int(w_mm * MM), int(max_h_mm * MM))
         bin_id = f'image{self._img_idx}'
         self._img_idx += 1
         self._images.append((bin_id, ext, data))
-        w, h = fit_size(wpx, hpx, int(w_mm * MM), int(max_h_mm * MM))
         self._uid += 1
         return pic_run(self.char(BODY_FONT, 10), bin_id, w, h, wpx, hpx, inline=True, uid=self._uid + 500,
                        name=os.path.basename(path))

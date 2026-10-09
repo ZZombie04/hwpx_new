@@ -73,6 +73,7 @@ START_HERE = (
     '- 공문(내부 기안문·겉공문·시행문) → hwpx_gongmun(명세 JSON, 기관 공문 서식 필요)\n'
     '- 사용자가 한글에서 손본 파일 고치기 → hwpx_patch(ops JSON) / 글자만 바꾸기 → hwpx_replace\n'
     '- 점검 → hwpx_qa("오류 0" 까지) + hwpx_preview(모든 쪽)\n'
+    '- 사진 때문에 문서가 무거움 → hwpx_shrink(보이는 크기 × 200dpi 로 그림만 줄임, 새 파일)\n'
     '명세 문법: hwpx_format_guide. 사실은 입력에서만, 없는 값은 ○○ 로 비우고 보고.\n\n'
     '## hwpx_new 사용 순서(서식 재현)\n'
     '1. hwpx_analyze(template_path): 사용자가 준 HWPX 서식을 분석한다(서식 종류 목록·블록 목록·표지 칸). 이어서 나오는 "뼈대 Markdown"이\n'
@@ -210,6 +211,14 @@ def hwpx_replace(src, output, pairs):
     from .patch import replace_text_zip
     hits = replace_text_zip(src, output, [tuple(p) for p in pairs])
     return '\n'.join(f'"{k}": 본문 {n}곳' for k, n in hits.items()) + f'\n{output}'
+
+
+@tool('HWPX 안 그림을 표시 크기에 맞춰 줄여 문서 용량을 줄인다(사진은 JPEG·도표는 팔레트 PNG, 글·서식은 그대로).',
+      src=('string', '원본 HWPX'), output=('string', '결과 HWPX'), dpi=('integer', '표시 크기 기준 해상도(기본 200)', False))
+def hwpx_shrink(src, output, dpi=200):
+    from .images import shrink_hwpx
+    rep, (b, f) = shrink_hwpx(src, output, dpi=int(dpi))
+    return '\n'.join(f'{n}: {x}KB → {y}KB' for n, x, y in rep) + f'\n문서 {b}KB → {f}KB: {output}'
 
 
 def _qa_text(path):

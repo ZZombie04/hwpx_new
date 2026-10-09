@@ -252,9 +252,17 @@ def check_pdf(pdf):
     d = pymupdf.open(pdf)
     if len(d) < 2:
         return []
-    lines = [ln.strip() for ln in d[-1].get_text().split('\n') if ln.strip()]
-    appr = ('시행', '접수', '협조자', '전화', '/전송', '공개', '우', '/')
-    body = [ln for ln in lines if not ln.startswith(appr) and not re.fullmatch(r'[가-힣]{2,3}', ln) and len(ln) > 4]
-    if len(body) <= 1 and any(ln.startswith(('시행', '협조자')) for ln in lines):
+    lines = []
+    for b in d[-1].get_text('dict')['blocks']:
+        for ln in b.get('lines', []):
+            t = ''.join(s['text'] for s in ln['spans']).strip()
+            if t:
+                lines.append((ln['bbox'][1], ln['bbox'][3], t))
+    anchors = [y0 for y0, _, t in lines if t in ('협조자', '시행')]
+    if not anchors:
+        return []
+    top = min(anchors) - 60            # 결재란 윗부분(직위·이름 줄)은 협조자 줄 위 60pt 안에 있다
+    body = [t for y0, y1, t in lines if y1 < top and not re.fullmatch(r'-?\s*\d+\s*-?', t)]
+    if len(body) <= 1:
         return [f'결재란이 홀로 {len(d)}쪽에 있습니다 — 문장·표 행을 줄여 앞 쪽에 함께 들어가게 하세요.']
     return []

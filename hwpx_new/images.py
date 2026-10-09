@@ -40,54 +40,188 @@ def _pil():
 
 _CACHE = {}
 
+# 문서에 넣는 그림의 해상도 기준: 인쇄해도 또렷한 200dpi(화면은 96~150dpi 면 충분). 표시 크기보다 큰 픽셀은 버린다.
+DPI = 200
+JPEG_QUALITY = 82          # 사진: 82 이상은 눈으로 구별이 거의 안 되고 용량만 커진다(4:2:0, 점진적 JPEG)
+MAX_PX = 1600              # 표시 크기를 모를 때의 긴 변 상한
 
-def prepare_image(path: str, max_px: int = 1600):
-    """캐시 래퍼(자동 보정으로 여러 번 조립해도 사진은 한 번만 처리)."""
+
+def image_size(path: str):
+    """방향(EXIF)을 반영한 원본 픽셀 크기(가로, 세로). 그림 전체를 읽지 않는다."""
+    Image, ImageOps = _pil()
+    with Image.open(path) as im:
+        w, h = im.size
+        try:
+            if im.getexif().get(0x0112, 1) in (5, 6, 7, 8):     # 90°/270° 회전
+                w, h = h, w
+        except Exception:  # noqa
+            pass
+    return w, h
+
+
+def prepare_image(path: str, max_px: int = MAX_PX, box_mm=None, dpi: int = DPI):
+    """캐시 래퍼(자동 보정으로 여러 번 조립해도 사진은 한 번만 처리).
+    box_mm=(가로mm, 세로mm): 문서에 표시될 크기 — 이 크기를 dpi 로 채울 만큼만 픽셀을 남긴다."""
+    box = (round(box_mm[0], 1), round(box_mm[1], 1)) if box_mm else None
     try:
-        key = (os.path.abspath(path), os.path.getmtime(path), max_px)
+        key = (os.path.abspath(path), os.path.getmtime(path), max_px, box, dpi)
     except OSError:
         key = None
     if key and key in _CACHE:
         return _CACHE[key]
-    res = _prepare_image(path, max_px)
+    if not os.path.exists(path):
+        raise ImageError(f'사진 파일을 찾을 수 없습니다: {path}')
+    with open(path, 'rb') as f:
+        raw = f.read()
+    res = optimize_image(raw, os.path.splitext(path)[1].lower(), max_px=max_px, box_mm=box, dpi=dpi, name=path)
     if key:
         _CACHE[key] = res
     return res
 
 
-def _prepare_image(path: str, max_px: int = 1600):
-    """사진 파일 → (bytes, 확장자, 가로px, 세로px). EXIF 방향 보정, 큰 사진 축소, 한글 비지원 형식은 PNG/JPG 로 변환."""
-    if not os.path.exists(path):
-        raise ImageError(f'사진 파일을 찾을 수 없습니다: {path}')
-    Image, ImageOps = _pil()
-    ext = os.path.splitext(path)[1].lower()
+def prepare_for_box(path: str, max_w: int, max_h: int, want_w=None, dpi: int = DPI):
+    """표시 칸(HWPUNIT)에 맞춰 그림을 준비. 반환: (bytes, 확장자, 가로px, 세로px, 표시가로, 표시세로)."""
     try:
-        im = Image.open(path)
-        im.load()
+        w0, h0 = image_size(path)
     except Exception as e:  # noqa
         raise ImageError(f'사진을 열 수 없습니다({path}): {e}') from e
+    w, h = fit_size(w0, h0, max_w, max_h, want_w)
+    data, ext, wpx, hpx = prepare_image(path, box_mm=(w / MM, h / MM), dpi=dpi)
+    return data, ext, wpx, hpx, w, h
+
+
+def _colors(im, limit=256):
+    """작게 줄인 사본의 색 수(limit 초과면 None) — 사진(색 많음)과 도표·QR·로고(색 적음)를 가른다."""
+    t = im.convert('RGB')
+    t.thumbnail((256, 256))
+    c = t.getcolors(maxcolors=limit)
+    return len(c) if c else None
+
+
+def optimize_image(raw: bytes, ext: str = '', max_px: int = MAX_PX, box_mm=None, dpi: int = DPI, name='그림'):
+    """그림 바이트 → (bytes, 확장자, 가로px, 세로px). 문서 용량을 줄이되 화질은 표시 크기에서 티 나지 않게.
+    - 방향(EXIF) 보정, 표시 크기 × dpi 보다 큰 픽셀은 줄임(키우지는 않음)
+    - 사진(색 많음) → JPEG(품질 82, 4:2:0, 점진적), 도표·QR·로고(색 256 이하) → 팔레트 PNG(2색이면 계단 없이 또렷하게)
+    - 투명 배경 → PNG. 원본이 이미 더 작으면 원본을 그대로 쓴다."""
+    Image, ImageOps = _pil()
     try:
-        im = ImageOps.exif_transpose(im)
+        im = Image.open(io.BytesIO(raw))
+        im.load()
+    except Exception as e:  # noqa
+        raise ImageError(f'사진을 열 수 없습니다({name}): {e}') from e
+    fmt0 = (im.format or '').upper()
+    rotated = False
+    try:
+        if im.getexif().get(0x0112, 1) != 1:
+            im = ImageOps.exif_transpose(im)
+            rotated = True
     except Exception:  # noqa
         pass
     w, h = im.size
-    scale = min(1.0, max_px / max(w, h))
-    if scale < 1.0:
-        im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
-    w, h = im.size
-    has_alpha = im.mode in ('RGBA', 'LA') or (im.mode == 'P' and 'transparency' in im.info)
+    if box_mm:
+        tw, th = box_mm[0] / 25.4 * dpi, box_mm[1] / 25.4 * dpi
+        scale = min(1.0, tw / w, th / h) if tw > 0 and th > 0 else 1.0
+    else:
+        scale = min(1.0, max_px / max(w, h))
+    has_alpha = im.mode in ('RGBA', 'LA', 'PA') or (im.mode == 'P' and 'transparency' in im.info)
+    ncol = _colors(im)
+    graphic = ncol is not None
+    if scale < 0.98:
+        nw, nh = max(1, round(w * scale)), max(1, round(h * scale))
+        if graphic and ncol <= 2:
+            im = im.convert('L').resize((nw, nh), Image.LANCZOS).point(lambda v: 0 if v < 128 else 255)
+        else:
+            src = im.convert('RGBA' if has_alpha else 'RGB') if im.mode not in ('RGB', 'RGBA', 'L') else im
+            im = src.resize((nw, nh), Image.LANCZOS)
     buf = io.BytesIO()
-    if ext in ('.png',) or has_alpha:
-        if im.mode not in ('RGB', 'RGBA', 'L'):
-            im = im.convert('RGBA' if has_alpha else 'RGB')
+    if has_alpha:
+        im = im.convert('RGBA')
+        im.save(buf, 'PNG', optimize=True)
+        out_ext = '.png'
+    elif graphic:
+        if im.mode == 'L' and ncol <= 2:
+            im = im.convert('1', dither=Image.NONE)
+        elif im.mode != 'P':
+            im = im.convert('RGB').quantize(colors=max(2, min(256, ncol)), dither=Image.NONE)
         im.save(buf, 'PNG', optimize=True)
         out_ext = '.png'
     else:
-        if im.mode != 'RGB':
-            im = im.convert('RGB')
-        im.save(buf, 'JPEG', quality=85, optimize=True)
+        im = im.convert('RGB')
+        im.save(buf, 'JPEG', quality=JPEG_QUALITY, optimize=True, progressive=True, subsampling=2)
         out_ext = '.jpg'
-    return buf.getvalue(), out_ext, w, h
+    data = buf.getvalue()
+    keep = scale >= 0.98 and not rotated and fmt0 in ('JPEG', 'PNG') and len(raw) <= len(data)
+    if keep:                                     # 줄일 것이 없고 원본이 더 작으면 원본 그대로(재압축 손실 없음)
+        return raw, ('.jpg' if fmt0 == 'JPEG' else '.png'), w, h
+    return data, out_ext, im.size[0], im.size[1]
+
+
+def shrink_hwpx(src: str, out: str, dpi: int = DPI, min_gain: float = 0.1):
+    """이미 만든 HWPX 안의 그림을 표시 크기에 맞춰 다시 줄인다(글·서식·나머지 파일은 그대로).
+    그림마다 문서에 표시된 가장 큰 크기(hp:curSz)를 찾아 그 크기 × dpi 만큼만 남기고, 사진은 JPEG·도표는 팔레트 PNG 로.
+    min_gain(기본 10%) 이상 줄어들 때만 바꾼다. 반환: [(그림, 전 KB, 후 KB)], (전체 전 KB, 후 KB)."""
+    import zipfile
+    zin = zipfile.ZipFile(src)
+    names = zin.namelist()
+    sizes = {}
+    for n in names:
+        if not n.startswith('Contents/section'):
+            continue
+        root = etree.fromstring(zin.read(n))
+        for pic in root.iter(HP + 'pic'):
+            img = pic.find('.//' + HC + 'img')
+            sz = pic.find(HP + 'curSz')
+            if sz is None or int(sz.get('width', '0')) <= 0:
+                sz = pic.find(HP + 'sz')
+            if img is None or sz is None:
+                continue
+            bid = img.get('binaryItemIDRef')
+            w, h = int(sz.get('width', '0')), int(sz.get('height', '0'))
+            ow, oh = sizes.get(bid, (0, 0))
+            sizes[bid] = (max(ow, w), max(oh, h))
+    opf = '{http://www.idpf.org/2007/opf/}'
+    hpf = etree.fromstring(zin.read('Contents/content.hpf'))
+    items = {it.get('id'): it for it in hpf.iter(opf + 'item')}
+    replace, rename, report = {}, {}, []
+    for bid, (w, h) in sizes.items():
+        it = items.get(bid)
+        if it is None or w <= 0 or h <= 0 or it.get('href') not in names:
+            continue
+        href = it.get('href')
+        raw = zin.read(href)
+        try:
+            data, ext, _, _ = optimize_image(raw, os.path.splitext(href)[1].lower(), box_mm=(w / MM, h / MM), dpi=dpi,
+                                             name=href)
+        except ImageError:
+            continue
+        if len(data) > len(raw) * (1 - min_gain):
+            continue
+        new_href = os.path.splitext(href)[0] + ext
+        if new_href.lower() != href.lower():
+            rename[href] = new_href
+            it.set('href', new_href)
+            it.set('media-type', MEDIA.get(ext, 'image/png'))
+        replace[href] = data
+        report.append((href, round(len(raw) / 1024), round(len(data) / 1024)))
+    before = sum(i.compress_size for i in zin.infolist())
+    tmp = out + '.tmp'
+    with zipfile.ZipFile(tmp, 'w') as zout:
+        for info in zin.infolist():
+            n = info.filename
+            data = zin.read(n)
+            if n == 'Contents/content.hpf' and rename:
+                data = etree.tostring(hpf, xml_declaration=True, encoding='UTF-8', standalone=True)
+            if n in replace:
+                data = replace[n]
+            zi = zipfile.ZipInfo(rename.get(n, n), date_time=info.date_time)
+            zi.compress_type = info.compress_type
+            zi.external_attr, zi.create_system = info.external_attr, info.create_system
+            zout.writestr(zi, data)
+    zin.close()
+    os.replace(tmp, out)
+    with zipfile.ZipFile(out) as z:
+        after = sum(i.compress_size for i in z.infolist())
+    return report, (round(before / 1024), round(after / 1024))
 
 
 def photo_info(path: str):

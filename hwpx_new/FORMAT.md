@@ -92,6 +92,9 @@ Markdown 안에 ` ```json … ``` ` 로 블록 하나(또는 목록)를 그대�
 `{"note": "…", "level": 1|2}` · `{"p": "…", "style": "body"}` · `{"table": …}` · `{"box": {"title", "lines": ["❍ …", "- …"]}}` ·
 `{"image": {"path", "width_mm", "max_h_mm", "caption"}}` · `{"page": true}` · `{"blank": true}` · `{"clone": {"from", "to", "replace", "recolor"}}`
 
+그림은 원본 그대로 들어가지 않는다: 보이는 크기(`width_mm`·`max_h_mm`) × 200dpi 로 줄이고(키우지 않음) 사진은 JPEG 품질 82,
+256색 이하 그림(도표·QR)은 팔레트 PNG 로 넣는다. 이미 만들어진 문서는 `hwpx-new shrink 문서.hwpx -o 작은문서.hwpx [--dpi 200]`.
+
 ## 공문 명세(gongmun) — `hwpx-new gongmun 명세.json -o 결과.hwpx --check`
 
 | 키 | 뜻 |
