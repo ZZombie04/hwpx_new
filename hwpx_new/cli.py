@@ -229,8 +229,13 @@ def _doctor():
     best = 'hancom' if e['hancom'] else ('libreoffice' if e['libreoffice'] else 'html')
     print(f'→ 기본 사용 엔진: {best}' + ('' if best != 'html' else '  (근사 PDF: 실제 한글 배치와 조금 다를 수 있음)'))
     if e['hancom']:
-        print('한글 자동 변환: 한글이 "파일 접근 허용" 창을 띄우면 도구가 자동으로 [접근 허용]을 누릅니다(작업 폴더의 파일만).')
-        if _screensaver_active():
+        from . import hancom
+        if hancom.auto_allowed(hancom.work_dir()):
+            print(f'한글 자동 변환: 작업 폴더가 임시 폴더 안({hancom.work_dir()})이라 한글이 "파일 접근 허용" 창을 띄우지 않습니다.')
+        else:
+            print(f'한글 자동 변환: 작업 폴더({hancom.work_dir()})가 임시 폴더 밖이라 한글이 "파일 접근 허용" 창을 띄웁니다. '
+                  'HWPX_NEW_WORK 환경변수를 지우면 창 없이 동작합니다.')
+        if _screensaver_active() and not hancom.auto_allowed(hancom.work_dir()):
             print('  ※ 지금 화면보호기/잠금 화면이 켜져 있는 것 같습니다. 이 상태에서는 자동 클릭이 되지 않으니 화면을 켜고 쓰세요.')
     return 0 if ok else 1
 

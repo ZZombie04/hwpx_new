@@ -101,8 +101,8 @@ def hwpx_doctor():
     from .pdf import available_engines
     e = available_engines()
     return (f'한글(Hancom): {e["hancom"]}\nLibreOffice: {e["libreoffice"]}\n내장 렌더러: 가능 (브라우저 {e["browser"]})\n'
-            + ('한글이 있어 실제와 동일한 PDF 가 만들어진다. 한글이 "파일 접근 허용" 창을 띄우면 이 도구가 자동으로 누른다'
-               '(화면보호기·잠금 상태에서는 눌리지 않으니 화면을 켠 채 사용).' if e['hancom'] else
+            + ('한글이 있어 실제와 동일한 PDF 가 만들어진다. 작업 파일을 임시 폴더에 두므로 한글이 "파일 접근 허용" 창을 띄우지 않고, '
+               '사용자 마우스·창을 건드리지 않는다.' if e['hancom'] else
                '한글이 없어 근사 PDF 가 만들어질 수 있다(쪽 배치가 실제와 조금 다를 수 있음).'))
 
 
