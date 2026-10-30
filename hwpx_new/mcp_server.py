@@ -16,7 +16,7 @@ import traceback
 
 GUIDE = os.path.join(os.path.dirname(__file__), 'FORMAT.md')
 SERVER_NAME = 'hwpx_new'
-SERVER_VERSION = '2.3.0'
+SERVER_VERSION = '2.4.0'
 SUPPORTED = ('2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07')
 
 TOOLS = {}
@@ -179,7 +179,8 @@ def _spec_arg(spec):
 
 
 @tool('공문(기안문·시행문)을 만든다: 기관 공문 서식(머리 표·결재란이 든 HWPX) + 내용 명세(JSON) → HWPX. '
-      '본문 번호 체계(1.→가.→1)→가))·표·QR·붙임/끝·발신 명의·수신자 줄은 도구가 정한다. 명세 문법은 hwpx_format_guide 의 "공문 명세".',
+      '본문 번호 체계(1.→가.→1)→가))·표·QR·붙임/끝·발신 명의·수신자 줄은 도구가 정한다. 본문은 돋움체 12pt 줄 간격 123% 고정, '
+      '끝. 아래 들여쓰기 없는 빈 줄 하나 자동. 한글 점검은 숨은 데스크톱에서 돌아 사용자 화면을 방해하지 않는다. 명세 문법은 hwpx_format_guide 의 "공문 명세".',
       spec=('string', '공문 명세 JSON(문자열 또는 파일 경로). template·receiver·title·body·attachments·sender·receivers·approval'),
       output=('string', '결과 HWPX 경로'), check=('boolean', 'PDF 로 바꿔 조판 점검까지(기본 true)', False))
 def hwpx_gongmun(spec, output, check=True):

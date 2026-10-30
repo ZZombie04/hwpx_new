@@ -45,6 +45,12 @@ LEVELS = [  # (정규식, 단계)
 ]
 NOTE = re.compile(r'^※')
 
+# 겉공문 본문 고정 서식(사용자 지침): 돋움체 · 12pt · 줄 간격 123%. 서식 파일의 본문 모양과 관계없이 이 값으로 짠다.
+# 명세에 font·size·line 을 직접 적은 경우(사용자가 다른 값을 지시했을 때)만 바뀐다.
+BODY_FONT = '돋움체'
+BODY_SIZE = 12
+BODY_LINE = 123
+
 
 def _txt(el):
     return ''.join(''.join(t.itertext()) for t in el.iter(HP + 't'))
@@ -73,29 +79,29 @@ class Gongmun(Composer):
     """공문 본문 조판: 1.(0칸) → 가.(1칸) → 1)(2칸) → 가)(3칸). 표·※ 는 바로 위 단계보다 한 칸 더 들여 놓는다."""
     LEAD = re.compile(r'^(※|\d{1,2}\.|[가-하]\.|\d{1,2}\)|[가-하]\)) ')
 
-    def __init__(self, template, font=None, size=None):
+    def __init__(self, template, font=None, size=None, line=None):
         super().__init__(template)
         self.cover_i, self.approval_i = self._find_blocks()
-        body_p = next((e for e in self.tops[self.cover_i + 1:self.approval_i] if _txt(e).strip()), None)
-        f, s = _font_of(self.head, body_p)
-        self.font, self.size = font or f, float(size or s)
+        self.font, self.size, self.line_pct = font or BODY_FONT, float(size or BODY_SIZE), int(line or BODY_LINE)
         u = int(self.size * 100)            # 한 칸(본문 글자 1자) 폭 HWPUNIT
         self.unit = u
-        F, S = self.font, self.size
+        F, S, L = self.font, self.size, self.line_pct
         cs = max(S - 1, 9)
         st = {k: ((F,) + v[1:] if v[0] in (C.BODY_FONT, C.HEAD_FONT) else v) for k, v in Composer.STYLES.items()}
-        # 단계 n: 왼쪽 여백 (n-1)칸, 내어쓰기 = 번호 폭('1. '·'1) ' 1.5칸, '가. '·'가) ' 2칸)
+        # 단계 n: 왼쪽 여백 (n-1)칸, 내어쓰기 = 번호 폭('1. '·'1) ' 1.5칸, '가. '·'가) ' 2칸). 본문 줄 간격은 L(123%) 고정.
         for n, hang in ((1, 1.5), (2, 2), (3, 1.5), (4, 2)):
-            st[f'g{n}'] = (F, S, False, 'JUSTIFY', u * (n - 1), int(u * hang), 240 if n == 1 else 60, 0, 160, False)
+            st[f'g{n}'] = (F, S, False, 'JUSTIFY', u * (n - 1), int(u * hang), 240 if n == 1 else 60, 0, L, False)
             st[f'g{n}k'] = st[f'g{n}'][:9] + (True,)        # 뒤따르는 표와 같은 쪽에
         for n in (1, 2, 3, 4):                                # ※ 참고(표 아래 등)
-            st[f'gn{n}'] = (F, cs, False, 'JUSTIFY', u * n, int(cs * 150), 80, 0, 150, False)
+            st[f'gn{n}'] = (F, cs, False, 'JUSTIFY', u * n, int(cs * 150), 80, 0, L, False)
         st.update({
-            'gp': (F, S, False, 'JUSTIFY', 0, 0, 240, 0, 160, False),
-            'att': (F, S, False, 'LEFT', 0, 0, 500, 0, 160, False),
-            'att2': (F, S, False, 'LEFT', u * 3, 0, 0, 0, 160, False),       # '붙임  ' 폭만큼
+            'gp': (F, S, False, 'JUSTIFY', 0, 0, 240, 0, L, False),
+            'att': (F, S, False, 'LEFT', 0, 0, 500, 0, L, False),
+            'att2': (F, S, False, 'LEFT', u * 3, 0, 0, 0, L, False),         # '붙임  ' 폭만큼
+            # '끝.' 다음 줄: 들여쓰기·여백 없이 맨 앞에서 시작하는 빈 줄 하나(사용자 지침)
+            'endblank': (F, S, False, 'LEFT', 0, 0, 0, 0, L, False),
             'sig': (F, S + 6, True, 'CENTER', 0, 0, 900, 600, 130, False),
-            'rcv': (F, cs, False, 'LEFT', 0, int(cs * 100 * 4), 0, 0, 150, False),   # '수신자  ' 폭만큼
+            'rcv': (F, cs, False, 'LEFT', 0, int(cs * 100 * 4), 0, 0, L, False),   # '수신자  ' 폭만큼
             'cell': (F, cs, False, 'CENTER', 0, 0, 0, 0, 140, False),
             'cellL': (F, cs, False, 'LEFT', 0, 0, 0, 0, 145, False),
             'cellLh': (F, cs, False, 'LEFT', 0, int(cs * 100), 0, 0, 145, False),
@@ -202,7 +208,7 @@ def build(spec, out):
     """명세(dict, JSON 문자열 또는 JSON 파일 경로) → 공문 HWPX. 돌려줌: 결과 경로."""
     spec, base = load_spec(spec)
     tpl = spec['template'] if os.path.isabs(spec['template']) else os.path.join(base, spec['template'])
-    d = Gongmun(tpl, spec.get('font'), spec.get('size'))
+    d = Gongmun(tpl, spec.get('font'), spec.get('size'), spec.get('line'))
     # 머리 표(그 앞 블록 포함)
     head = d.clone(0, d.cover_i, replace=spec.get('head_replace'))[-1]
     if spec.get('receiver') is not None and not d.set_cell_after(head, '수신', spec['receiver']):
@@ -214,6 +220,8 @@ def build(spec, out):
     atts = spec.get('attachments') or []
     if not atts and body and isinstance(body[-1], str) and not body[-1].rstrip().endswith('끝.'):
         body[-1] = body[-1].rstrip() + '  끝.'
+    elif not atts and body and not isinstance(body[-1], str):
+        body.append('끝.')                        # 표로 끝나는 본문: 표 다음 줄 맨 앞에 '끝.'
     for i, item in enumerate(body):
         nxt = body[i + 1] if i + 1 < len(body) else None
         if isinstance(item, str):
@@ -231,6 +239,8 @@ def build(spec, out):
         else:
             text = f'{k}. {_bu(a)}' + ('  끝.' if k == len(atts) else '')
             d.p('붙임  ' + text if k == 1 else text, 'att' if k == 1 else 'att2')
+    # '끝.' 줄 아래에 빈 줄 하나: 들여쓰기·왼쪽 여백·빈칸 없이 맨 앞에서 시작(사용자 지침, 문단 모양 endblank)
+    d.p('', 'endblank')
     if spec.get('sender'):
         d.p(spec['sender'], 'sig')
     rec = spec.get('receivers')

@@ -65,21 +65,34 @@ def remove(name=NAME, key=KEY):
 
 
 def verify():
-    """한글을 열어 RegisterModule 이 True 를 돌려주는지 확인(한글 프로세스는 스스로 띄운 것만 정리)."""
-    from . import hancom
+    """한글을 열어 RegisterModule 이 True 를 돌려주는지 확인(숨은 데스크톱에서 실행, 스스로 띄운 한글만 정리)."""
+    import uuid
+    from . import hancom, isolate
     ps = hancom._ps()
     if not ps:
         return False, 'PowerShell 을 찾지 못했습니다.'
-    script = ("$h = New-Object -ComObject HWPFrame.HwpObject; "
-              f"$r = $h.RegisterModule('FilePathCheckDLL', '{NAME}'); "
-              "try { $h.Quit() | Out-Null } catch {}; if ($r) { 'OK' } else { 'FAIL' }")
+    wd = hancom.work_dir()
+    tag = uuid.uuid4().hex[:6]
+    script, res = os.path.join(wd, f'verify_{tag}.ps1'), os.path.join(wd, f'verify_{tag}.out')
+    lines = ['param([string]$out)',
+             '$h = New-Object -ComObject HWPFrame.HwpObject',
+             f"$r = $h.RegisterModule('FilePathCheckDLL', '{NAME}')",
+             'try { $h.Quit() | Out-Null } catch {}',
+             "[IO.File]::WriteAllText($out, $(if ($r) { 'OK' } else { 'FAIL' }))"]
+    with open(script, 'w', encoding='utf-8-sig') as f:
+        f.write('\n'.join(lines) + '\n')
     before = hancom.hwp_pids()
     try:
-        r = subprocess.run([ps, '-NoProfile', '-Command', script], capture_output=True, text=True, errors='replace',
-                           timeout=60)
-        ok = 'OK' in (r.stdout or '')
-        return ok, (r.stdout or r.stderr or '').strip()[:200]
+        with isolate.HwpLock(wd):
+            isolate.spawn([ps, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, res]).wait(60)
+        text = open(res, encoding='utf-8', errors='replace').read() if os.path.exists(res) else ''
+        return 'OK' in text, text.strip()[:200]
     except Exception as e:  # noqa
         return False, str(e)
     finally:
         hancom.kill_new_hwp(before)
+        for f in (script, res):
+            try:
+                os.unlink(f)
+            except OSError:
+                pass

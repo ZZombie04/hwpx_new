@@ -76,6 +76,65 @@ def test_gongmun_end_mark_without_attachment(tmp, gm_template):
     assert '2. 붙임과 같이 수립하고자 합니다.  끝.' in paras(out)
 
 
+def _body_layout(path):
+    """본문 문단마다 (글, 글꼴, 크기 pt, 줄 간격 %, 왼쪽 여백, 내어쓰기) — 표 안 문단은 뺀다."""
+    from hwpx_new.compose import HH
+    z = zipfile.ZipFile(path)
+    head = etree.fromstring(z.read('Contents/header.xml'))
+    sec = etree.fromstring(z.read('Contents/section0.xml'))
+    faces = {f.get('id'): f.get('face') for ff in head.iter(HH + 'fontface') if ff.get('lang') == 'HANGUL'
+             for f in ff.findall(HH + 'font')}
+    chars = {c.get('id'): c for c in head.iter(HH + 'charPr')}
+    paras_ = {p.get('id'): p for p in head.iter(HH + 'paraPr')}
+    out = []
+    for p in sec:
+        if p.tag != HP + 'p' or p.find('.//' + HP + 'tbl') is not None:
+            continue
+        run = p.find(HP + 'run')
+        cp = chars.get(run.get('charPrIDRef')) if run is not None else None
+        pp = paras_[p.get('paraPrIDRef')]
+        ls = pp.find('.//' + HH + 'lineSpacing')
+        left = intent = None
+        for e in pp.iter():
+            if e.tag.endswith('}left') and left is None:
+                left = int(e.get('value'))
+            if e.tag.endswith('}intent') and intent is None:
+                intent = int(e.get('value'))
+        text = ''.join(_t(x) for r in p.findall(HP + 'run') for x in r.findall(HP + 't'))
+        face = faces.get(cp.find(HH + 'fontRef').get('hangul')) if cp is not None else None
+        out.append((text, face, int(cp.get('height')) / 100 if cp is not None else None,
+                    int(ls.get('value')) if ls is not None else None, left, intent))
+    return out
+
+
+def test_gongmun_body_fixed_dotum_12_line_123(tmp, gm_template):
+    """겉공문 본문은 서식과 관계없이 돋움체 · 12pt · 줄 간격 123%(사용자 지침)."""
+    out = os.path.join(tmp, 'gm_rule.hwpx')
+    gongmun.build({'template': gm_template, 'receiver': '내부결재', 'title': '계획 수립',
+                   'body': ['1. 관련: 예시', '2. 다음과 같이 수립하고자 합니다.', '가. 개요', '1) 세부', '※ 참고'],
+                   'attachments': ['계획']}, out)
+    rows = _body_layout(out)
+    body = [r for r in rows if r[0].startswith(('1.', '2.', '가.', '1)', '붙임'))]
+    assert body and all(r[1] == '돋움체' and r[2] == 12 and r[3] == 123 for r in body), body
+
+
+def test_gongmun_blank_line_after_end_mark(tmp, gm_template):
+    """'끝.' 다음 줄은 들여쓰기·여백·빈칸 없는 빈 줄 하나(붙임 있음/없음, 표로 끝남 모두)."""
+    cases = [
+        {'body': ['1. 관련: 예시', '2. 수립하고자 합니다.']},
+        {'body': ['1. 관련: 예시'], 'attachments': ['계획 1부', '명단 1부']},
+        {'body': ['1. 개요', {'table': {'label_col': True, 'rows': [['일시', '11. 21.']]}}]},
+    ]
+    for k, extra in enumerate(cases):
+        out = os.path.join(tmp, f'gm_end{k}.hwpx')
+        gongmun.build(dict({'template': gm_template, 'receiver': '내부결재', 'title': '계획'}, **extra), out)
+        rows = _body_layout(out)
+        i = next(i for i, r in enumerate(rows) if r[0].rstrip().endswith('끝.'))
+        nxt = rows[i + 1]
+        assert nxt[0] == '' and nxt[4] == 0 and nxt[5] == 0 and nxt[3] == 123, (k, rows[i], nxt)
+        assert sum(1 for r in rows[i + 1:] if r[0] == '' and r[4] == 0) >= 1
+
+
 def test_gongmun_needs_cover(tmp):
     with pytest.raises(ValueError):
         gongmun.build({'template': TPL, 'title': 'x', 'body': []}, os.path.join(tmp, 'bad.hwpx'))

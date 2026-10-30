@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hwpx-new"
-version = "2.3.0"
+version = "2.4.0"
 description = "한글(HWPX) 문서를 AI 로 만드는 도구: 서식 재현·계획서·공문·장편 보고서(차례·통계·도표 자동) · CLI · MCP · AI 스킬"
 readme = "README.md"
 requires-python = ">=3.9"

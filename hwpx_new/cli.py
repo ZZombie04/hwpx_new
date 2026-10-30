@@ -188,18 +188,6 @@ def main(argv=None):
         return 1
 
 
-def _screensaver_active() -> bool:
-    if sys.platform != 'win32':
-        return False
-    try:
-        import subprocess
-        r = subprocess.run(['tasklist', '/FO', 'CSV', '/NH'], capture_output=True, text=True, errors='replace', timeout=20)
-        names = r.stdout.lower()
-        return '.scr"' in names or 'logonui.exe' in names
-    except Exception:  # noqa
-        return False
-
-
 def _doctor():
     from .pdf import available_engines
     e = available_engines()
@@ -235,8 +223,11 @@ def _doctor():
         else:
             print(f'한글 자동 변환: 작업 폴더({hancom.work_dir()})가 임시 폴더 밖이라 한글이 "파일 접근 허용" 창을 띄웁니다. '
                   'HWPX_NEW_WORK 환경변수를 지우면 창 없이 동작합니다.')
-        if _screensaver_active() and not hancom.auto_allowed(hancom.work_dir()):
-            print('  ※ 지금 화면보호기/잠금 화면이 켜져 있는 것 같습니다. 이 상태에서는 자동 클릭이 되지 않으니 화면을 켜고 쓰세요.')
+        from . import isolate
+        if isolate.enabled() and isolate._desktop():
+            print('한글 화면 분리: 숨은 데스크톱에서 실행합니다 — 사용자의 키보드·마우스·창 포커스를 가져가지 않습니다.')
+        else:
+            print('한글 화면 분리: 숨은 데스크톱을 쓸 수 없어 보통 방식으로 실행합니다(HWPX_NEW_VISIBLE 환경변수를 확인하세요).')
     return 0 if ok else 1
 
 
@@ -250,9 +241,7 @@ def _doctor_hancom():
         return 1
     src = os.path.join(HERE, 'data', 'sample_template.hwpx')
     out = os.path.join(tempfile.mkdtemp(prefix='hwpx_new_hc_'), 'test.pdf')
-    print(chr(10) + '한글 변환 점검(예시 서식 → PDF). 승인 창이 뜨면 자동으로 누릅니다…')
-    if _screensaver_active():
-        print('  ※ 화면보호기/잠금 화면이 켜져 있는 것 같습니다. 이 상태에서는 자동 클릭이 되지 않습니다. 화면을 켠 뒤 다시 실행하세요.')
+    print(chr(10) + '한글 변환 점검(예시 서식 → PDF, 숨은 데스크톱에서 실행)…')
     t = time.time()
     ok, msg, info = hancom.export_pdf(src, out, timeout=120)
     took = round(time.time() - t, 1)

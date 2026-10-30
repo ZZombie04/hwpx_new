@@ -1,6 +1,6 @@
 # hwpx_new
 
-[![version](https://img.shields.io/badge/version-2.3.0-8C1C3C)](https://github.com/ZZombie04/hwpx_new/releases)
+[![version](https://img.shields.io/badge/version-2.4.0-8C1C3C)](https://github.com/ZZombie04/hwpx_new/releases)
 [![python](https://img.shields.io/badge/python-3.9%2B-111113)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-MIT-111113)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-22%20tools-8C1C3C)](docs/clients.md)
@@ -20,7 +20,15 @@ Claude · ChatGPT(Codex) · Gemini · Grok · Cursor · Antigravity 등 **어떤
 
 표지 띠, 소제목 바, 표 색·테두리, 강조 박스, 글머리 기호, 글자 색·굵기, 줄 간격, 쪽 번호까지 **원본 서식 그대로** 복제됩니다.
 
-## 새 기능 2.3.0 — 연구학교 결과보고서·연구보고서를 원고 한 장으로
+## 새 기능 2.4.0 — 사용자 화면을 절대 건드리지 않는 한글 자동화 · 겉공문 고정 서식
+
+- **숨은 데스크톱 실행**: PDF 저장·`.hwp` 변환·`--check`·`qa` 를 하는 동안 한글이 사용자의 키보드·마우스·창 포커스를 가져가지 않습니다.
+  작업 중에도 평소처럼 타자·클릭을 계속할 수 있습니다. 한글 작업은 잠금으로 한 번에 하나씩 돕니다.
+- **겉공문 본문 고정**: `gongmun` 본문은 서식 파일과 관계없이 **돋움체 · 12pt · 줄 간격 123%**, 마지막 `끝.` 아래에는
+  **들여쓰기·여백 없는 빈 줄 하나**가 자동으로 들어갑니다(본문이 표로 끝나면 표 다음 줄에 `끝.`).
+- **kordoc 과 함께 쓸 때의 규칙**을 지침(AGENTS.md·CLAUDE.md·GEMINI.md·스킬)에 넣었습니다: 읽기·검수·미리보기는 kordoc, 만들기는 이 도구.
+
+## 2.3.0 — 연구학교 결과보고서·연구보고서를 원고 한 장으로
 
 ```bash
 hwpx-new report init 내보고서                 # 바로 빌드되는 예시 원고 + 자료(CSV) + 사진
@@ -146,7 +154,10 @@ AI 는 마지막에 **HWPX 경로, PDF 경로, (지어낸 내용이 있다면) �
 한글은 외부 프로그램이 파일을 열 때 **"파일 접근 허용" 보안 승인 창**을 띄웁니다. 다만 한글(`HwpAutomation.dll`)은 **Windows 임시 폴더(GetTempPath) 아래 파일은 묻지 않고 허용**합니다
 (한글 2024 13.0.0.1408 에서 역분석·실측). 그래서 `hwpx_new` 는 작업 파일을 `%TEMP%\hwpx_new_work` 에 복사해 열고 저장하므로 **승인 창이 뜨지 않습니다** — 한글 보안 설정·레지스트리는 바꾸지 않습니다.
 
-- **사용자 PC 를 방해하지 않습니다**: 마우스 커서를 옮기거나 키를 보내지 않습니다. COM 으로 뜬 한글은 숨은 창인데도 키보드 포커스를 가져가는 일이 있어(사용자 입력이 한동안 없을 때 Windows 가 허용), 승인 도우미가 곧바로 사용자가 쓰던 창으로 돌려줍니다.
+- **사용자 PC 를 방해하지 않습니다(2.4.0)**: 한글은 이 도구 전용 **숨은 데스크톱**에서 돕니다. 숨은 데스크톱의 창은 사용자 화면의 전경 창이 될 수 없어
+  키보드 포커스·마우스·창 순서를 절대 가져가지 않습니다. 마우스 커서를 옮기거나 키를 보내거나 창을 앞으로 가져오는 코드는 없습니다.
+  실측: `python tools/focus_guard_test.py` (변환하는 동안 50ms 마다 전경 창·사용자 화면의 한글 창을 기록 → `판정: 방해 없음`).
+- **한글 작업은 한 번에 하나씩**: 여러 AI·여러 창이 동시에 변환을 시켜도 잠금 파일로 차례를 기다려 한글 COM 이 부딪히지 않습니다.
 - **사용자 한글은 끄지 않습니다**: 작업이 끝나면 이 도구가 COM 으로 띄운 한글 프로세스(창 핸들로 찾은 것, 모르면 명령줄에 `-Embedding` 이 있는 것)만 정리합니다. 작업 중에 사용자가 연 한글은 그대로 둡니다.
 - `HWPX_NEW_WORK` 로 작업 폴더를 임시 폴더 밖에 두면 승인 창이 다시 뜹니다. 이때 도구는 [접근 허용]을 UI Automation 으로만 눌러 보는데, 한글 승인 창은 활성 상태가 아니면 이를 무시하므로 닫히지 않을 수 있습니다(50초 뒤 알리고 이 도구의 한글만 정리, 근사 PDF 로 대체).
 - 원인과 상태는 `hwpx-new doctor` 가, 실제로 한 번 변환해 보는 점검은 **`hwpx-new doctor --hancom`** 이 알려 줍니다(승인 창을 자동으로 처리했는지까지 출력).
@@ -157,7 +168,7 @@ AI 는 마지막에 **HWPX 경로, PDF 경로, (지어낸 내용이 있다면) �
 
 | 명령 | 설명 |
 |---|---|
-| `hwpx-new doctor` | 환경 점검(파이썬 패키지·한글·PDF 엔진·화면보호기) |
+| `hwpx-new doctor` | 환경 점검(파이썬 패키지·한글·PDF 엔진·숨은 데스크톱 화면 분리) |
 | `hwpx-new setup [--skill] [--dry-run]` | 설치된 AI 프로그램에 MCP(+스킬) 자동 연결(설정 파일은 백업 후 수정) |
 | `hwpx-new analyze 서식.hwpx` | 서식 종류 목록 + 블록 목록 + 뼈대 Markdown |
 | `hwpx-new skeleton 서식.hwpx -o 뼈대.md` | 뼈대 Markdown 만 저장 |

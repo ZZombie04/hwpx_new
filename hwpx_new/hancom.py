@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-"""한글(Windows) 자동화: HWPX/HWP 열기 · PDF/HWPX 저장 · '파일 접근 허용' 승인 창 자동 처리.
+"""한글(Windows) 자동화: HWPX/HWP 열기 · PDF/HWPX 저장.
 
-- 한글은 COM(HWPFrame.HwpObject)으로 조작한다. 사용자가 열어 둔(또는 작업 중에 새로 연) 한글 창은 건드리지 않고,
-  이 도구가 COM 으로 띄운 한글 프로세스(명령줄에 -Embedding)만 정리한다.
-- 승인 창이 아예 뜨지 않게 한다: 한글(HwpAutomation.dll)은 Windows 임시 폴더(GetTempPath) 아래 파일은 묻지 않고 허용하므로
-  작업 폴더를 그 안에 둔다(2026-10-29 한글 2024 13.0.0.1408 역분석·실측). 보안 설정·레지스트리는 바꾸지 않는다.
-- 그래도 창이 뜨면(작업 폴더를 임시 폴더 밖으로 바꾼 경우 등) 이 도구가 띄운 프로세스의 창에 한해 [접근 허용]을
-  UI Automation 호출로 누른다. 마우스 커서를 옮기거나 창을 앞으로 가져오지 않는다.
+사용자의 PC 사용을 절대 방해하지 않는다.
+- 한글을 조작하는 PowerShell 과 그것이 COM 으로 띄우는 한글은 이 도구 전용 **숨은 데스크톱**에서 돈다(isolate.py).
+  숨은 데스크톱의 창은 사용자 화면의 전경 창이 될 수 없어 키보드 포커스·마우스를 가져가지 않는다.
+- 사용자 화면의 창을 앞으로 가져오거나(SetForegroundWindow), 마우스를 옮기거나, 키를 보내는 코드는 없다.
+- 사용자가 열어 둔(또는 작업 중에 새로 연) 한글 창은 건드리지 않고, 이 도구가 띄운 한글 프로세스만 정리한다.
+- 한글 작업은 잠금 파일로 한 번에 하나씩 돈다(여러 AI 가 동시에 불러도 COM 이 부딪히지 않게).
+- '파일 접근 허용' 창이 아예 뜨지 않게 한다: 한글(HwpAutomation.dll)은 Windows 임시 폴더(GetTempPath) 아래 파일은 묻지 않고
+  허용하므로 작업 폴더를 그 안에 둔다(2026-10-29 한글 2024 13.0.0.1408 역분석·실측). 보안 설정·레지스트리는 바꾸지 않는다.
+  그래도 창이 뜨면 숨은 데스크톱 안에서 그 창의 [접근 허용](이번 한 번)만 UI Automation 으로 누른다.
 """
 from __future__ import annotations
 
@@ -19,10 +22,12 @@ import tempfile
 import time
 import uuid
 
+from . import isolate
+
 # ------------------------------------------------------------------ PowerShell 스크립트
 # 한글 열기 → (선택) 쪽 수·글자 수 확인 → 저장.  결과는 마지막 줄 'RESULT {json}' 으로 돌려준다.
 RUN_PS = r"""
-param([string]$src, [string]$dst, [string]$fmtIn, [string]$fmtOut, [string]$hwndFile)
+param([string]$src, [string]$dst, [string]$fmtIn, [string]$fmtOut, [string]$hwndFile, [string]$outFile)
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $ErrorActionPreference = 'Stop'
 $sw = [Diagnostics.Stopwatch]::StartNew(); $tl = New-Object System.Collections.ArrayList
@@ -67,12 +72,16 @@ try {
   }
 }
 $res.timeline = ($tl -join ' ')
-'RESULT ' + ($res | ConvertTo-Json -Compress)
+$line = 'RESULT ' + ($res | ConvertTo-Json -Compress)
+if ($outFile) { [IO.File]::WriteAllText($outFile, $line, (New-Object Text.UTF8Encoding $false)) }
+$line
 """
 
 # 한글이 띄우는 승인 창을 대신 누르는 도우미(이 도구가 띄운 한글 프로세스만 대상).
+# 숨은 데스크톱에서 함께 돌므로, 창을 앞으로 가져와도 그 숨은 데스크톱 안의 일일 뿐 사용자 화면에는 영향이 없다.
+# 숨은 데스크톱을 쓰지 못하는 경우($isolated = 0)에는 창을 앞으로 가져오지 않는다(사용자 포커스 보호가 우선).
 APPROVE_PS = r"""
-param([string]$log, [string]$stop, [long]$since, [string]$workdir, [int]$maxSec = 900, [long]$fgInit = 0)
+param([string]$log, [string]$stop, [long]$since, [string]$workdir, [int]$maxSec = 900, [int]$isolated = 1)
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName UIAutomationClient
@@ -89,46 +98,7 @@ public class HwpWin {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
-  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
-  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool f);
-  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
-  public static uint PidOf(IntPtr h) { uint p; GetWindowThreadProcessId(h, out p); return p; }
-  public static bool Visible(IntPtr h) { return IsWindowVisible(h); }
-  // 포커스를 쥔 한글 스레드의 입력 큐에 잠깐 붙어야 Windows 가 되돌리기를 허락한다(그냥 부르면 거절됨, 실측).
-  [DllImport("user32.dll")] static extern void SwitchToThisWindow(IntPtr h, bool alt);
-  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
-  [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h, uint cmd);
-  [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
-  // 되돌릴 창을 모를 때: 화면 맨 위에 있는 사용자 창(보이고, 최소화 아니고, 제목 있고, 도구 창 아님, 이 도구가 띄운 한글 아님)
-  public static IntPtr NextUserWindow(HashSet<uint> skip) {
-    IntPtr found = IntPtr.Zero;
-    EnumWindows((h, l) => {
-      uint p; GetWindowThreadProcessId(h, out p);
-      if (skip.Contains(p) || !IsWindowVisible(h) || IsIconic(h) || GetWindow(h, 4) != IntPtr.Zero) return true;
-      if ((GetWindowLong(h, -20) & 0x80) != 0) return true;   // WS_EX_TOOLWINDOW
-      var t = new StringBuilder(8); if (GetWindowText(h, t, 8) == 0) return true;
-      found = h; return false;
-    }, IntPtr.Zero);
-    return found;
-  }
-  public static string How = "";
-  public static bool GiveBack(IntPtr target) {
-    How = "set";
-    if (SetForegroundWindow(target)) return true;
-    uint p; uint ft = GetWindowThreadProcessId(GetForegroundWindow(), out p);
-    uint me = GetCurrentThreadId();
-    if (ft != 0 && ft != me) {
-      bool att = AttachThreadInput(me, ft, true);
-      How = "attach=" + att;
-      bool ok = att && SetForegroundWindow(target);
-      if (att) AttachThreadInput(me, ft, false);
-      if (ok) return true;
-    }
-    How += "+switch";
-    SwitchToThisWindow(target, true);
-    return GetForegroundWindow() == target;
-  }
-  // 지정한 프로세스들의 '보이는' 작은 창(대화상자 크기)만 가볍게 나열한다. 한글 본창(큰 창)은 건드리지 않는다.
+  // 지정한 프로세스들의 '보이는' 작은 창(대화상자 크기)만 나열한다. 한글 본창(큰 창)은 건드리지 않는다.
   public static List<string> Dialogs(HashSet<uint> pids) {
     var res = new List<string>();
     EnumWindows((h, l) => {
@@ -136,7 +106,6 @@ public class HwpWin {
       if (pids.Contains(p) && IsWindowVisible(h)) {
         RECT r; GetWindowRect(h, out r);
         int w = r.R - r.L, hh = r.B - r.T;
-        // 한글이 시작할 때 잠깐 띄우는 작은 창(157x25 따위)은 빼야 바쁜 한글을 UI Automation 으로 기다리며 멈추지 않는다.
         if (w >= 250 && hh >= 90 && w < 1100 && hh < 800) {
           var t = new StringBuilder(256); GetWindowText(h, t, 256);
           res.Add(h.ToInt64() + "|" + p + "|" + w + "x" + hh + "|" + t.ToString());
@@ -156,26 +125,10 @@ $t0 = Get-Date
 $handled = @{}
 $tries = @{}
 $wasOpen = $false
-$goodFg = if ($fgInit) { [IntPtr]$fgInit } else { [HwpWin]::GetForegroundWindow() }   # 도우미가 뜨기 전에 한글이 포커스를 가져가도 되돌릴 곳을 알도록
-$firstSeen = @{}
-$restored = 0
-Log "approver start"
+Log ("approver start isolated=" + $isolated)
 while (-not (Test-Path -LiteralPath $stop) -and ((Get-Date) - $t0).TotalSeconds -lt $maxSec) {
   $set = New-Object 'System.Collections.Generic.HashSet[uint32]'
-  foreach ($p in @(Get-Process -Name Hwp)) { try { if ($p.StartTime.ToFileTimeUtc() -ge $since) { [void]$set.Add([uint32]$p.Id); if (-not $firstSeen.ContainsKey($p.Id)) { $firstSeen[$p.Id] = Get-Date } } } catch {} }
-  # 포커스 돌려주기: COM 으로 뜬 한글은 창이 숨겨져 있어도 키보드 포커스를 가져간다(사용자가 200초 넘게 입력이 없으면 Windows 가 허용, 2026-10-29 실측).
-  # 앞 창이 이 도구가 띄운 한글의 '보이지 않는' 창이거나, 한글이 막 뜬 직후(4초) 앞 창이 비면 사용자가 쓰던 창으로 되돌린다.
-  # 보이는 한글 창(사용자가 연 것·승인 창)은 건드리지 않는다.
-  $fg = [HwpWin]::GetForegroundWindow()
-  $justStarted = $false
-  foreach ($k in $firstSeen.Keys) { if (((Get-Date) - $firstSeen[$k]).TotalSeconds -lt 4) { $justStarted = $true } }
-  $hijack = ($fg -ne [IntPtr]::Zero -and $set.Contains([HwpWin]::PidOf($fg)) -and -not [HwpWin]::Visible($fg)) -or ($fg -eq [IntPtr]::Zero -and $justStarted)
-  # 이 도구가 띄운 한글 창은 시작할 때 잠깐 보였다가 숨겨지므로 되돌릴 곳으로 기억하지 않는다.
-  if (-not $hijack) { if ($fg -ne [IntPtr]::Zero -and -not $set.Contains([HwpWin]::PidOf($fg))) { $goodFg = $fg } }
-  else {
-    if (-not ($goodFg -ne [IntPtr]::Zero -and [HwpWin]::IsWindow($goodFg) -and [HwpWin]::Visible($goodFg))) { $goodFg = [HwpWin]::NextUserWindow($set) }
-    if ($goodFg -ne [IntPtr]::Zero -and [HwpWin]::GiveBack($goodFg)) { $restored++; if ($restored -le 3) { Log 'FOCUS-RESTORE' } }
-  }
+  foreach ($p in @(Get-Process -Name Hwp)) { try { if ($p.StartTime.ToFileTimeUtc() -ge $since) { [void]$set.Add([uint32]$p.Id) } } catch {} }
   $sawNow = $false
   if ($set.Count -gt 0) {
     foreach ($line in [HwpWin]::Dialogs($set)) {
@@ -212,15 +165,11 @@ while (-not (Test-Path -LiteralPath $stop) -and ((Get-Date) - $t0).TotalSeconds 
       if ($pick) {
         $n = 1 + [int]$tries[$key]; $tries[$key] = $n
         if ($n -gt 6) { if ($n -eq 7) { Log 'GIVEUP (승인 창이 닫히지 않음)' }; continue }
-        # UI Automation 호출로만 누른다(2026-10-29 실측: 한글 2024 승인 창은 Invoke 로 바로 닫힘).
-        # 사용자가 PC 를 쓰는 중이므로 마우스 커서를 옮기거나 창을 앞으로 가져와 키를 보내지 않는다.
         try {
-          # 한글 승인 창은 비활성 상태에서 Invoke 를 무시한다(실측) → 그 창만 잠깐 앞으로(마우스는 그대로), 누른 뒤 사용자 창으로 돌려준다.
+          # 한글 승인 창은 비활성 상태에서 Invoke 를 무시한다(실측). 숨은 데스크톱 안에서만 그 창을 활성화한다.
           $dlg = [IntPtr][int64]$parts[0]
-          if ([HwpWin]::GetForegroundWindow() -ne $dlg) { [void][HwpWin]::GiveBack($dlg); Start-Sleep -Milliseconds 120 }
+          if ($isolated -eq 1 -and [HwpWin]::GetForegroundWindow() -ne $dlg) { [void][HwpWin]::SetForegroundWindow($dlg); Start-Sleep -Milliseconds 120 }
           $pick.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-          Start-Sleep -Milliseconds 150
-          if ($goodFg -ne [IntPtr]::Zero -and [HwpWin]::IsWindow($goodFg)) { [void][HwpWin]::GiveBack($goodFg) }
           Log ("CLICK[invoke] [{0}]" -f $pick.Current.Name)
         } catch { Log ("CLICK-FAIL[invoke] [{0}] {1}" -f $pick.Current.Name, $_.Exception.Message) }
       }
@@ -351,16 +300,9 @@ class _Approver:
         self.script = os.path.join(self.wd, f'approve_{uuid.uuid4().hex[:6]}.ps1')
         with open(self.script, 'w', encoding='utf-8-sig') as f:
             f.write(APPROVE_PS)
-        try:
-            import ctypes
-            fg = int(ctypes.windll.user32.GetForegroundWindow() or 0)
-        except Exception:  # noqa
-            fg = 0
-        self.proc = subprocess.Popen(
-            [_ps(), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', self.script, self.log, self.stop,
-             str(_filetime_now()), self.wd, '900', str(fg)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        iso = 1 if (isolate.enabled() and isolate._desktop()) else 0
+        self.proc = isolate.spawn([_ps(), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', self.script, self.log,
+                                   self.stop, str(_filetime_now()), self.wd, '900', str(iso)])
 
     def peek(self) -> str:
         try:
@@ -415,7 +357,7 @@ def run(src: str, dst: str | None, fmt_in: str, fmt_out: str = '', timeout: int 
     wd = work_dir()
     tag = uuid.uuid4().hex[:8]
     for old in os.listdir(wd):                      # 이전 실행이 남긴(10분 넘은) 임시 파일 정리 — 동시에 도는 다른 작업의 파일은 건드리지 않는다
-        if old.startswith(('convert_', 'approve_', 'approver_', 'run_', 'hwnd_')):
+        if old.startswith(('convert_', 'approve_', 'approver_', 'run_', 'hwnd_', 'verify_')):
             try:
                 pth = os.path.join(wd, old)
                 if time.time() - os.path.getmtime(pth) > 600:
@@ -432,8 +374,7 @@ def run(src: str, dst: str | None, fmt_in: str, fmt_out: str = '', timeout: int 
     before = hwp_pids()
     appr = _Approver(wd)
     proc = None
-    fout = os.path.join(wd, f'run_{tag}.out')
-    ferr = os.path.join(wd, f'run_{tag}.err')
+    fres = os.path.join(wd, f'run_{tag}.out')
     fhwnd = os.path.join(wd, f'hwnd_{tag}.txt')
     mine = set()                                     # 이번 작업이 COM 으로 띄운 한글 프로세스(창 핸들로 찾음)
 
@@ -445,47 +386,47 @@ def run(src: str, dst: str | None, fmt_in: str, fmt_out: str = '', timeout: int 
                     mine.add(pid)
             except (OSError, ValueError):
                 pass
+    lock = isolate.HwpLock(wd, timeout=max(timeout * 3, 600))
     try:
+        lock.__enter__()
+        before = hwp_pids()
         appr.start()
-        with open(fout, 'wb') as fo, open(ferr, 'wb') as fe:
-            proc = subprocess.Popen([ps, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, w_in, w_out,
-                                     fmt_in, fmt_out, fhwnd], stdout=fo, stderr=fe,
-                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-            t0 = time.time()
-            dialog_wait = float(os.environ.get('HWPX_NEW_DIALOG_WAIT', '50'))
-            last_len, last_change = 0, t0
-            while proc.poll() is None:
-                time.sleep(0.5)
-                _find_mine()
-                now = time.time()
-                log = appr.peek()
-                if len(log) != last_len:
-                    last_len, last_change = len(log), now
-                lines = [l for l in log.splitlines() if (' DIALOG ' in l or ' CLICK' in l or 'CLEARED' in l or 'GIVEUP' in l)]
-                dialog_open = bool(lines) and 'CLEARED' not in lines[-1]
-                if dialog_open and now - last_change > dialog_wait:
-                    out['error'] = 'dialog_stuck'
-                    break
-                if now - t0 > timeout:
-                    out['error'] = 'timeout'
-                    break
+        # 숨은 데스크톱에서 실행: 한글 창이 사용자 화면에 생기지 않아 키보드·마우스 포커스를 가져가지 않는다.
+        proc = isolate.spawn([ps, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, w_in, w_out,
+                              fmt_in, fmt_out, fhwnd, fres])
+        t0 = time.time()
+        dialog_wait = float(os.environ.get('HWPX_NEW_DIALOG_WAIT', '50'))
+        last_len, last_change = 0, t0
+        while proc.poll() is None:
+            time.sleep(0.5)
+            _find_mine()
+            now = time.time()
+            log = appr.peek()
+            if len(log) != last_len:
+                last_len, last_change = len(log), now
+            lines = [l for l in log.splitlines() if (' DIALOG ' in l or ' CLICK' in l or 'CLEARED' in l or 'GIVEUP' in l)]
+            dialog_open = bool(lines) and 'CLEARED' not in lines[-1]
+            if dialog_open and now - last_change > dialog_wait:
+                out['error'] = 'dialog_stuck'
+                break
+            if now - t0 > timeout:
+                out['error'] = 'timeout'
+                break
         if out['error']:
             proc.kill()
         else:
-            def _read(p):
-                try:
-                    return open(p, encoding='utf-8-sig', errors='replace').read()
-                except OSError:
-                    return ''
-            stdout, stderr = _read(fout), _read(ferr)
-            line = next((l for l in reversed((stdout or '').splitlines()) if l.startswith('RESULT ')), None)
+            try:
+                text = open(fres, encoding='utf-8-sig', errors='replace').read()
+            except OSError:
+                text = ''
+            line = next((l for l in reversed(text.splitlines()) if l.startswith('RESULT ')), None)
             if line:
                 try:
                     out.update(json.loads(line[7:]))
                 except ValueError:
                     out['error'] = 'RESULT 해석 실패: ' + line[:120]
             else:
-                out['error'] = ((stderr or stdout or '').strip() or '한글 응답 없음')[:300]
+                out['error'] = '한글 응답 없음(PowerShell 이 결과를 남기지 않았습니다)'
             if dst and out.get('ok') and os.path.exists(w_out) and os.path.getsize(w_out) > 500:
                 shutil.copyfile(w_out, dst)
             elif dst:
@@ -494,7 +435,8 @@ def run(src: str, dst: str | None, fmt_in: str, fmt_out: str = '', timeout: int 
         out['dialogs'] = summarize_dialogs(appr.finish())
         _find_mine()
         kill_new_hwp(before, only=mine or None)
-        for f in (script, w_in, w_out, fout, ferr, fhwnd):
+        lock.__exit__()
+        for f in (script, w_in, w_out, fres, fhwnd):
             try:
                 if f:
                     os.unlink(f)
